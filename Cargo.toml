@@ -31,7 +31,7 @@ openxr = { git = "https://github.com/Ralith/openxrs", rev = "0177d2d", features 
 	"mint",
 ] }
 [target.'cfg(all(target_family = "unix", not(target_arch = "wasm32")) )'.dependencies]
-openxr = { git = "https://github.com/Ralith/openxrs", rev = "0177d2d", features = [
+openxr = { git = "https://github.com/goudanough/openxrs", rev = "main", features = [
 	"mint",
 ] }
 [target.'cfg(all(not(target_family = "unix"), not(target_arch = "wasm32")))'.dependencies]
