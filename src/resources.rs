@@ -147,7 +147,7 @@ impl<G: xr::Graphics> SwapchainInner<G> {
         }
         match passthrough_layer {
             Some(pass) => {
-                info!("Rendering with pass through");
+                // info!("Rendering with pass through");
                 let passthrough_layer = xr::sys::CompositionLayerPassthroughFB {
                     ty: CompositionLayerPassthroughFB::TYPE,
                     next: ptr::null(),
