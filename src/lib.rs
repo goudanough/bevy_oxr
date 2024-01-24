@@ -23,7 +23,7 @@ use bevy::window::{PresentMode, PrimaryWindow, RawHandleWrapper};
 use graphics::extensions::XrExtensions;
 use graphics::{XrAppInfo, XrPreferdBlendMode};
 use input::XrInput;
-use openxr as xr;
+pub use openxr as xr;
 use passthrough::{start_passthrough, supports_passthrough};
 use resources::*;
 use xr::FormFactor;
