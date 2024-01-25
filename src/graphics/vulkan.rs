@@ -56,8 +56,7 @@ pub fn initialize_xr_graphics(
     assert!(available_extensions.raw().khr_vulkan_enable2);
     info!("available xr exts: {:#?}", available_extensions);
 
-    let mut enabled_extensions: xr::ExtensionSet =
-        (available_extensions & reqeusted_extensions).into();
+    let mut enabled_extensions: xr::ExtensionSet = reqeusted_extensions.into();
     enabled_extensions.khr_vulkan_enable2 = true;
     #[cfg(target_os = "android")]
     {
