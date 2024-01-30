@@ -107,7 +107,6 @@ pub fn initialize_xr_graphics(
         _ => EnvironmentBlendMode::OPAQUE,
     };
 
-
     #[cfg(not(target_os = "android"))]
     let vk_target_version = vk::make_api_version(0, 1, 2, 0);
     #[cfg(not(target_os = "android"))]
@@ -130,9 +129,8 @@ pub fn initialize_xr_graphics(
     }
 
     let vk_entry = unsafe { ash::Entry::load() }?;
-    let flags = wgpu_hal::InstanceFlags::empty();
-    let extensions =
-        <V as Api>::Instance::required_extensions(&vk_entry, vk_target_version, flags)?;
+    let flags = wgpu::InstanceFlags::from_build_config();
+    let extensions = <V as Api>::Instance::desired_extensions(&vk_entry, vk_target_version, flags)?;
     let device_extensions = vec![
         ash::extensions::khr::Swapchain::name(),
         ash::extensions::khr::DrawIndirectCount::name(),
@@ -283,8 +281,8 @@ pub fn initialize_xr_graphics(
             wgpu_open_device,
             &wgpu::DeviceDescriptor {
                 label: None,
-                features: wgpu_features,
-                limits: wgpu::Limits {
+                required_features: wgpu_features,
+                required_limits: wgpu::Limits {
                     max_bind_groups: 8,
                     max_storage_buffer_binding_size: wgpu_adapter
                         .limits()
@@ -316,7 +314,7 @@ pub fn initialize_xr_graphics(
         // SAFETY: Plugins should be set up on the main thread.
         let handle = wrapper.get_handle();
         wgpu_instance
-            .create_surface(&handle)
+            .create_surface(handle)
             .expect("Failed to create wgpu surface")
     });
     let swapchain_format = surface
