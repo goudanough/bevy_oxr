@@ -3,10 +3,13 @@ use crate::{LEFT_XR_TEXTURE_HANDLE, RIGHT_XR_TEXTURE_HANDLE};
 use bevy::core_pipeline::tonemapping::{DebandDither, Tonemapping};
 use bevy::math::Vec3A;
 use bevy::prelude::*;
-use bevy::render::camera::{CameraProjection, CameraRenderGraph, RenderTarget};
+use bevy::render::camera::{
+    CameraMainTextureUsages, CameraProjection, CameraRenderGraph, RenderTarget,
+};
 use bevy::render::primitives::Frustum;
 use bevy::render::view::{ColorGrading, VisibleEntities};
 use openxr::Fovf;
+use wgpu::TextureUsages;
 
 #[derive(Bundle)]
 pub struct XrCamerasBundle {
@@ -40,6 +43,7 @@ pub struct XrCameraBundle {
     pub tonemapping: Tonemapping,
     pub dither: DebandDither,
     pub color_grading: ColorGrading,
+    pub main_texture_usages: CameraMainTextureUsages,
     pub xr_camera_type: XrCameraType,
 }
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd, Component)]
@@ -76,6 +80,11 @@ impl XrCameraBundle {
             tonemapping: Default::default(),
             dither: DebandDither::Enabled,
             color_grading: Default::default(),
+            main_texture_usages: CameraMainTextureUsages(
+                TextureUsages::RENDER_ATTACHMENT
+                    | TextureUsages::TEXTURE_BINDING
+                    | TextureUsages::COPY_SRC,
+            ),
             xr_camera_type: XrCameraType::Xr(eye),
         }
     }
