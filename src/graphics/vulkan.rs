@@ -208,7 +208,8 @@ pub fn initialize_xr_graphics(
     let wgpu_features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::MULTIVIEW
         | wgpu::Features::MULTI_DRAW_INDIRECT_COUNT
-        | wgpu::Features::MULTI_DRAW_INDIRECT;
+        | wgpu::Features::MULTI_DRAW_INDIRECT
+        | wgpu::Features::POLYGON_MODE_LINE;
 
     let wgpu_exposed_adapter = wgpu_vk_instance
         .expose_adapter(vk_physical_device)
