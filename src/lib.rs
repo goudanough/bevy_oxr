@@ -130,7 +130,7 @@ impl Plugin for OpenXrPlugin {
                 };
                 app.insert_resource(xr_data);
                 app.insert_resource(ActionSets(vec![]));
-                app.add_plugins(RenderPlugin {
+                let render_plugin = RenderPlugin {
                     render_creation: RenderCreation::Manual(
                         device,
                         queue,
@@ -138,7 +138,10 @@ impl Plugin for OpenXrPlugin {
                         render_adapter,
                         RenderInstance(Arc::new(instance)),
                     ),
-                });
+                };
+                render_plugin.build(app);
+                assert!(render_plugin.ready(app));
+                render_plugin.finish(app);
                 app.insert_resource(XrEnableStatus::Enabled);
             }
             Err(err) => {
