@@ -307,8 +307,8 @@ pub fn xr_begin_frame(
         let _span = info_span!("xr_poll_events");
         let mut new_events = Vec::new();
         loop {
-            new_events.push(Box::new(xr::EventDataBuffer::default()));
-            if let Some(event) = instance.poll_event(new_events.last_mut().unwrap().as_mut()).unwrap() {
+            let mut evt_buf = Box::new(xr::EventDataBuffer::default());
+            if let Some(event) = instance.poll_event(evt_buf.as_mut()).unwrap() {
                 use xr::Event::*;
                 match event {
                     SessionStateChanged(e) => {
@@ -338,8 +338,8 @@ pub fn xr_begin_frame(
                     }
                     _ => {}
                 }
+                new_events.push(evt_buf);
             } else {
-                new_events.pop();
                 break;
             }
         }
