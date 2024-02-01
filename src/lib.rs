@@ -66,6 +66,9 @@ pub struct FutureXrResources(
         >,
     >,
 );
+
+// #[derive(Resource)]
+pub struct XrEvents(pub Vec<Box<xr::EventDataBuffer>>);
 // fn mr_test(mut commands: Commands, passthrough_layer: Option<Res<XrPassthroughLayer>>) {
 //     commands.insert_resource(ClearColor(Color::rgba(0.0, 0.0, 0.0, 0.0)));
 // }
@@ -202,6 +205,7 @@ impl Plugin for OpenXrPlugin {
                 size: *data.xr_resolution,
                 format: *data.xr_format,
             };
+            app.insert_non_send_resource(XrEvents(Vec::new()));
             app.add_systems(PreUpdate, xr_begin_frame.run_if(xr_only()));
             let mut manual_texture_views = app.world.resource_mut::<ManualTextureViews>();
             manual_texture_views.insert(LEFT_XR_TEXTURE_HANDLE, left);
@@ -296,41 +300,51 @@ pub fn xr_begin_frame(
     swapchain: Res<XrSwapchain>,
     views: Res<XrViews>,
     input: Res<XrInput>,
+    mut events: NonSendMut<XrEvents>,
     mut app_exit: EventWriter<AppExit>,
 ) {
     {
         let _span = info_span!("xr_poll_events");
-        while let Some(event) = instance.poll_event(&mut Default::default()).unwrap() {
-            use xr::Event::*;
-            match event {
-                SessionStateChanged(e) => {
-                    // Session state change is where we can begin and end sessions, as well as
-                    // find quit messages!
-                    info!("entered XR state {:?}", e.state());
-                    match e.state() {
-                        xr::SessionState::READY => {
-                            session.begin(VIEW_TYPE).unwrap();
-                            session_running.store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut new_events = Vec::new();
+        loop {
+            new_events.push(Box::new(xr::EventDataBuffer::default()));
+            if let Some(event) = instance.poll_event(new_events.last_mut().unwrap().as_mut()).unwrap() {
+                use xr::Event::*;
+                match event {
+                    SessionStateChanged(e) => {
+                        // Session state change is where we can begin and end sessions, as well as
+                        // find quit messages!
+                        info!("entered XR state {:?}", e.state());
+                        match e.state() {
+                            xr::SessionState::READY => {
+                                session.begin(VIEW_TYPE).unwrap();
+                                session_running.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            xr::SessionState::STOPPING => {
+                                session.end().unwrap();
+                                session_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                app_exit.send(AppExit);
+                            }
+                            xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
+                                app_exit.send(AppExit);
+                                return;
+                            }
+                            _ => {}
                         }
-                        xr::SessionState::STOPPING => {
-                            session.end().unwrap();
-                            session_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                            app_exit.send(AppExit);
-                        }
-                        xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
-                            app_exit.send(AppExit);
-                            return;
-                        }
-                        _ => {}
                     }
+                    InstanceLossPending(_) => return,
+                    EventsLost(e) => {
+                        warn!("lost {} XR events", e.lost_event_count());
+                    }
+                    _ => {}
                 }
-                InstanceLossPending(_) => return,
-                EventsLost(e) => {
-                    warn!("lost {} XR events", e.lost_event_count());
-                }
-                _ => {}
+            } else {
+                new_events.pop();
+                break;
             }
         }
+
+        *events = XrEvents(new_events);
     }
     {
         let _span = info_span!("xr_wait_frame").entered();
