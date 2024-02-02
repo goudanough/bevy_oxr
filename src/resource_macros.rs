@@ -2,7 +2,7 @@
 macro_rules! xr_resource_wrapper {
     ($wrapper_type:ident, $xr_type:ty) => {
         #[derive(Clone, bevy::prelude::Resource)]
-        pub struct $wrapper_type($xr_type);
+        pub struct $wrapper_type(pub $xr_type);
 
         impl $wrapper_type {
             pub fn new(value: $xr_type) -> Self {
