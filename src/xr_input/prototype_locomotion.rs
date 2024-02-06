@@ -88,7 +88,7 @@ pub fn proto_locomotion(
         Ok(mut position) => {
             //get the stick input and do some maths
             let stick = controller.thumbstick(Hand::Left);
-            let input = stick.x * position.right() + stick.y * position.forward();
+            let input = position.right() * stick.x + position.forward() * stick.y;
             let reference_quat;
             match config.locomotion_type {
                 LocomotionType::Head => {
@@ -107,7 +107,7 @@ pub fn proto_locomotion(
                 }
             }
             let (yaw, _pitch, _roll) = reference_quat.to_euler(EulerRot::YXZ);
-            let reference_quat = Quat::from_axis_angle(position.up(), yaw);
+            let reference_quat = Quat::from_axis_angle(*position.up(), yaw);
             let locomotion_vec = reference_quat.mul_vec3(input);
             position.translation += locomotion_vec * config.locomotion_speed * time.delta_seconds();
 
@@ -122,7 +122,7 @@ pub fn proto_locomotion(
                         return;
                     }
                     let smoth_rot = Quat::from_axis_angle(
-                        position.up(),
+                        *position.up(),
                         rot_input * config.smooth_rotation_speed * time.delta_seconds(),
                     );
                     //apply rotation
@@ -161,7 +161,7 @@ pub fn proto_locomotion(
                             false => -1.0,
                         };
                         let smoth_rot =
-                            Quat::from_axis_angle(position.up(), config.snap_angle * dir);
+                            Quat::from_axis_angle(*position.up(), config.snap_angle * dir);
                         //apply rotation
                         let v = views.lock().unwrap();
                         let views = v.get(0);
