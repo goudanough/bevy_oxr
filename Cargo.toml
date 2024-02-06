@@ -11,22 +11,19 @@ license = "MIT/Apache-2.0"
 default = []
 force-link = ["openxr/linked"]
 
-[workspace]
-members = ["examples/android", "examples/demo"]
+# [workspace]
+# members = ["examples/android", "examples/demo"]
 
 [dependencies]
 anyhow = "1.0.75"
 ash = "0.37.3"
-bevy = { git = "https://github.com/bevyengine/bevy", branch = "main" }
+bevy = { git = "https://github.com/bevyengine/bevy", rev = "d4132f661a8a567fd3f9c3b329c2b4032bb1e05e" }
 futures-lite = "2.0.1"
 mint = "0.5.9"
+openxr = { git = "https://github.com/goudanough/openxrs", rev = "feb116d548377f8c5aa66c80db7b28d236d18cf3", features = ["mint"] }
 wgpu = "0.19.1"
 wgpu-core = { version = "0.19", features = ["vulkan"] }
 wgpu-hal = "0.19.1"
-
-openxr = { git = "https://github.com/goudanough/openxrs", branch = "main", features = [
-	"mint",
-] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1"

@@ -137,7 +137,7 @@ pub fn draw_interaction_gizmos(
                     };
                     gizmos.ray(
                         root.translation + root.rotation.mul_vec3(aim.0.translation),
-                        root.rotation.mul_vec3(aim.0.forward()),
+                        root.rotation.mul_vec3(*aim.0.forward()),
                         color,
                     );
                 }
@@ -285,7 +285,7 @@ pub fn interactions(
                         Some(aim) => {
                             let ray_origin =
                                 root.translation + root.rotation.mul_vec3(aim.0.translation);
-                            let ray_dir = root.rotation.mul_vec3(aim.0.forward());
+                            let ray_dir = root.rotation.mul_vec3(*aim.0.forward());
 
                             if ray_sphere_intersection(
                                 center,

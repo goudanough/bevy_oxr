@@ -70,7 +70,7 @@ impl XrCameraBundle {
                 viewport: None,
                 ..default()
             },
-            camera_render_graph: CameraRenderGraph::new(bevy::core_pipeline::core_3d::graph::NAME),
+            camera_render_graph: CameraRenderGraph::new(bevy::core_pipeline::core_3d::graph::SubGraph3d),
             xr_projection: Default::default(),
             visible_entities: Default::default(),
             frustum: Default::default(),
