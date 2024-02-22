@@ -141,6 +141,7 @@ impl Plugin for OpenXrPlugin {
                         render_adapter,
                         RenderInstance(Arc::new(instance)),
                     ),
+                    ..default()
                 };
                 render_plugin.build(app);
                 assert!(render_plugin.ready(app));
