@@ -326,9 +326,9 @@ pub fn xr_begin_frame(
                                 session_running.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
                             xr::SessionState::STOPPING => {
-                                session.end().unwrap();
-                                session_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                                app_exit.send(AppExit);
+                                // session.end().unwrap();
+                                // session_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                // app_exit.send(AppExit);
                             }
                             xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
                                 app_exit.send(AppExit);
