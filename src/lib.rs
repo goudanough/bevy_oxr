@@ -9,7 +9,6 @@ pub mod xr_input;
 
 use std::sync::atomic::AtomicBool;
 
-use crate::xr_init::{StartXrSession, XrInitPlugin};
 use crate::xr_input::oculus_touch::ActionSets;
 use crate::xr_input::trackers::verify_quat;
 use bevy::app::{AppExit, PluginGroupBuilder};
@@ -21,17 +20,17 @@ use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
 use bevy::render::renderer::{render_system, RenderInstance};
 use bevy::render::settings::RenderCreation;
 use bevy::render::{Render, RenderApp, RenderPlugin, RenderSet};
-use bevy::window::{PresentMode, PrimaryWindow, RawHandleWrapper};
+use bevy::window::{PresentMode, PrimaryWindow, RawHandleWrapper, WindowMode};
 use graphics::extensions::XrExtensions;
 use graphics::{XrAppInfo, XrPreferdBlendMode};
 use input::XrInput;
-use openxr as xr;
+pub use openxr as xr;
 use passthrough::{PassthroughPlugin, XrPassthroughLayer, XrPassthroughState};
 use resources::*;
 use xr_init::{
     xr_after_wait_only, xr_only, xr_render_only, CleanupRenderWorld, CleanupXrData,
     ExitAppOnSessionExit, SetupXrData, StartSessionOnStartup, XrCleanup, XrEarlyInitPlugin,
-    XrHasWaited, XrPostCleanup, XrShouldRender, XrStatus,
+    XrHasWaited, XrPostCleanup, XrShouldRender, XrStatus, XrInitPlugin,
 };
 use xr_input::actions::XrActionsPlugin;
 use xr_input::hands::emulated::HandEmulationPlugin;
@@ -39,6 +38,7 @@ use xr_input::hands::hand_tracking::HandTrackingPlugin;
 use xr_input::hands::HandPlugin;
 use xr_input::xr_camera::XrCameraPlugin;
 use xr_input::XrInputPlugin;
+use crate::xr_init::StartXrSession;
 
 const VIEW_TYPE: xr::ViewConfigurationType = xr::ViewConfigurationType::PRIMARY_STEREO;
 
@@ -53,6 +53,8 @@ pub struct OpenXrPlugin {
     pub app_info: XrAppInfo,
     pub synchronous_pipeline_compilation: bool,
 }
+
+pub struct XrEvents(pub Vec<Box<xr::EventDataBuffer>>);
 
 impl Plugin for OpenXrPlugin {
     fn build(&self, app: &mut App) {
@@ -71,15 +73,15 @@ impl Plugin for OpenXrPlugin {
             self.app_info.clone(),
         ) {
             Ok((
-                xr_instance,
-                oxr_session_setup_info,
-                blend_mode,
-                device,
-                queue,
-                adapter_info,
-                render_adapter,
-                instance,
-            )) => {
+                   xr_instance,
+                   oxr_session_setup_info,
+                   blend_mode,
+                   device,
+                   queue,
+                   adapter_info,
+                   render_adapter,
+                   instance,
+               )) => {
                 debug!("Configured wgpu adapter Limits: {:#?}", device.limits());
                 debug!("Configured wgpu adapter Features: {:#?}", device.features());
                 warn!("Starting with OpenXR Instance");
@@ -103,6 +105,7 @@ impl Plugin for OpenXrPlugin {
                     synchronous_pipeline_compilation: self.synchronous_pipeline_compilation,
                 });
                 app.insert_resource(XrStatus::Disabled);
+                app.insert_non_send_resource(XrEvents(Vec::new()));
                 // app.world.send_event(StartXrSession);
             }
             Err(err) => {
@@ -182,7 +185,6 @@ pub enum Backend {
     D3D12,
 }
 
-
 fn clean_resources_render(cmds: &mut World) {
     // let session = cmds.remove_resource::<XrSession>().unwrap();
     cmds.remove_resource::<XrSession>();
@@ -200,6 +202,7 @@ fn clean_resources_render(cmds: &mut World) {
     // }
     warn!("Cleanup Resources Render");
 }
+
 fn clean_resources(cmds: &mut World) {
     cmds.remove_resource::<XrSession>();
     cmds.remove_resource::<XrResolution>();
@@ -256,14 +259,15 @@ pub struct DefaultXrPlugins {
     pub app_info: XrAppInfo,
     pub synchronous_pipeline_compilation: bool,
 }
+
 impl Default for DefaultXrPlugins {
     fn default() -> Self {
         Self {
             backend_preference: vec![
                 #[cfg(feature = "vulkan")]
-                Backend::Vulkan,
+                    Backend::Vulkan,
                 #[cfg(all(feature = "d3d12", windows))]
-                Backend::D3D12,
+                    Backend::D3D12,
             ],
             reqeusted_extensions: default(),
             prefered_blend_mode: default(),
@@ -317,7 +321,11 @@ impl PluginGroup for DefaultXrPlugins {
                     ..default()
                 }),
                 #[cfg(target_os = "android")]
-                primary_window: None, // ?
+                primary_window: Some(Window {
+                    resizable: false,
+                    mode: WindowMode::BorderlessFullscreen,
+                    ..default()
+                }),
                 #[cfg(target_os = "android")]
                 exit_condition: bevy::window::ExitCondition::DontExit,
                 #[cfg(target_os = "android")]
@@ -344,56 +352,66 @@ fn xr_poll_events(
     mut start_session: EventWriter<StartXrSession>,
     mut setup_xr: EventWriter<SetupXrData>,
     mut cleanup_xr: EventWriter<CleanupXrData>,
+    mut events: NonSendMut<XrEvents>,
 ) {
     if let (Some(instance), Some(session)) = (instance, session) {
         let _span = info_span!("xr_poll_events");
-        while let Some(event) = instance.poll_event(&mut Default::default()).unwrap() {
-            use xr::Event::*;
-            match event {
-                SessionStateChanged(e) => {
-                    // Session state change is where we can begin and end sessions, as well as
-                    // find quit messages!
-                    info!("entered XR state {:?}", e.state());
-                    match e.state() {
-                        xr::SessionState::READY => {
-                            info!("Calling Session begin :3");
-                            session.begin(VIEW_TYPE).unwrap();
-                            setup_xr.send_default();
-                            session_running.store(true, std::sync::atomic::Ordering::Relaxed);
-                        }
-                        xr::SessionState::STOPPING => {
-                            session.end().unwrap();
-                            session_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                            cleanup_xr.send_default();
-                        }
-                        xr::SessionState::EXITING => {
-                            if *exit_type == ExitAppOnSessionExit::Always
-                                || *exit_type == ExitAppOnSessionExit::OnlyOnExit
-                            {
-                                app_exit.send_default();
+        let mut new_events = Vec::new();
+        loop {
+            let mut evt_buf = Box::new(xr::EventDataBuffer::default());
+            if let Some(event) = instance.poll_event(evt_buf.as_mut()).unwrap() {
+                use xr::Event::*;
+                match event {
+                    SessionStateChanged(e) => {
+                        // Session state change is where we can begin and end sessions, as well as
+                        // find quit messages!
+                        info!("entered XR state {:?}", e.state());
+                        match e.state() {
+                            xr::SessionState::READY => {
+                                info!("Calling Session begin :3");
+                                session.begin(VIEW_TYPE).unwrap();
+                                setup_xr.send_default();
+                                session_running.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
-                        }
-                        xr::SessionState::LOSS_PENDING => {
-                            if *exit_type == ExitAppOnSessionExit::Always {
-                                app_exit.send_default();
+                            xr::SessionState::STOPPING => {
+                                session.end().unwrap();
+                                session_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                cleanup_xr.send_default();
                             }
-                            if *exit_type == ExitAppOnSessionExit::OnlyOnExit {
-                                start_session.send_default();
+                            xr::SessionState::EXITING => {
+                                if *exit_type == ExitAppOnSessionExit::Always
+                                    || *exit_type == ExitAppOnSessionExit::OnlyOnExit
+                                {
+                                    app_exit.send_default();
+                                }
                             }
-                        }
+                            xr::SessionState::LOSS_PENDING => {
+                                if *exit_type == ExitAppOnSessionExit::Always {
+                                    app_exit.send_default();
+                                }
+                                if *exit_type == ExitAppOnSessionExit::OnlyOnExit {
+                                    start_session.send_default();
+                                }
+                            }
 
-                        _ => {}
+                            _ => {}
+                        }
                     }
+                    InstanceLossPending(_) => {
+                        app_exit.send_default();
+                    }
+                    EventsLost(e) => {
+                        warn!("lost {} XR events", e.lost_event_count());
+                    }
+                    _ => {}
                 }
-                InstanceLossPending(_) => {
-                    app_exit.send_default();
-                }
-                EventsLost(e) => {
-                    warn!("lost {} XR events", e.lost_event_count());
-                }
-                _ => {}
+                new_events.push(evt_buf)
+            } else {
+                break;
             }
         }
+
+        *events = XrEvents(new_events);
     }
 }
 

@@ -49,8 +49,7 @@ pub fn initialize_xr_instance(
     assert!(available_extensions.raw().khr_vulkan_enable2);
     // info!("available OpenXR extensions: {:#?}", available_extensions);
 
-    let mut enabled_extensions: xr::ExtensionSet =
-        (available_extensions & reqeusted_extensions).into();
+    let mut enabled_extensions: xr::ExtensionSet = reqeusted_extensions.into();
     enabled_extensions.khr_vulkan_enable2 = true;
     #[cfg(target_os = "android")]
     {
@@ -206,7 +205,8 @@ pub fn initialize_xr_instance(
     let wgpu_features = wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES
         | wgpu::Features::MULTIVIEW
         | wgpu::Features::MULTI_DRAW_INDIRECT_COUNT
-        | wgpu::Features::MULTI_DRAW_INDIRECT;
+        | wgpu::Features::MULTI_DRAW_INDIRECT
+        | wgpu::Features::POLYGON_MODE_LINE;
 
     let wgpu_exposed_adapter = wgpu_vk_instance
         .expose_adapter(vk_physical_device)

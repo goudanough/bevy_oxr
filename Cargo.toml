@@ -13,7 +13,7 @@ repository = "https://github.com/awtterpip/bevy_oxr"
 [workspace.dependencies]
 eyre = "0.6.2"
 bevy = "0.13"
-openxr = { git = "https://github.com/Ralith/openxrs", rev = "0177d2d" }
+openxr = { git = "https://github.com/goudanough/openxrs", rev = "feb116d548377f8c5aa66c80db7b28d236d18cf3" }
 color-eyre = "0.6.2"
 
 [package]
@@ -37,7 +37,7 @@ eyre.workspace = true
 futures-lite = "2.0.1"
 mint = "0.5.9"
 wgpu = "0.19"
-wgpu-core = { version = "0.19" }
+wgpu-core = { version = "0.19", features = ["vulkan"] }
 wgpu-hal = "0.19"
 
 [target.'cfg(windows)'.dependencies]

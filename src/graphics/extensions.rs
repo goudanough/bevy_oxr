@@ -2,7 +2,7 @@ use openxr::ExtensionSet;
 use std::ops;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct XrExtensions(ExtensionSet);
+pub struct XrExtensions(pub ExtensionSet);
 impl XrExtensions {
     pub fn raw_mut(&mut self) -> &mut ExtensionSet {
         &mut self.0
