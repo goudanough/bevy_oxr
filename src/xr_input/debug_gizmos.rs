@@ -90,8 +90,6 @@ pub fn draw_gizmos(
     //         return;
     //     }
     // }
-    //lock frame
-    let frame_state = *frame_state.lock().unwrap();
     //get controller
     let controller = oculus_controller.get_ref(&session, &frame_state, &xr_input, &action_sets);
     let root = tracking_root_query.get_single();

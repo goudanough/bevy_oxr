@@ -207,7 +207,8 @@ impl Plugin for OpenXrPlugin {
                 format: *data.xr_format,
             };
             app.insert_non_send_resource(XrEvents(Vec::new()));
-            app.add_systems(PreUpdate, xr_begin_frame.run_if(xr_only()));
+            app.add_systems(PreUpdate, xr_wait_frame.run_if(xr_only()));
+            app.add_systems(Last, begin_frame.run_if(xr_only()));
             let mut manual_texture_views = app.world.resource_mut::<ManualTextureViews>();
             manual_texture_views.insert(LEFT_XR_TEXTURE_HANDLE, left);
             manual_texture_views.insert(RIGHT_XR_TEXTURE_HANDLE, right);
@@ -240,6 +241,10 @@ impl Plugin for OpenXrPlugin {
             render_app.add_systems(
                 Render,
                 (
+                    // locate_views.run_if(xr_only()),
+                    // xr_input::xr_camera::xr_camera_head_sync
+                    //     .run_if(xr_only())
+                    //     .after(locate_views),
                     post_frame
                         .run_if(xr_only())
                         .before(render_system)
@@ -263,7 +268,7 @@ impl PluginGroup for DefaultXrPlugins {
         DefaultPlugins
             .build()
             .disable::<RenderPlugin>()
-            .disable::<PipelinedRenderingPlugin>()
+            // .disable::<PipelinedRenderingPlugin>()
             .add_before::<RenderPlugin, _>(OpenXrPlugin {
                 prefered_blend_mode: self.prefered_blend_mode,
                 reqeusted_extensions: self.reqeusted_extensions,
@@ -296,14 +301,13 @@ impl PluginGroup for DefaultXrPlugins {
     }
 }
 
-pub fn xr_begin_frame(
+pub fn xr_wait_frame(
     instance: Res<XrInstance>,
     session: Res<XrSession>,
     session_running: Res<XrSessionRunning>,
-    frame_state: Res<XrFrameState>,
+    mut frame_state: ResMut<XrFrameState>,
     frame_waiter: Res<XrFrameWaiter>,
-    swapchain: Res<XrSwapchain>,
-    views: Res<XrViews>,
+    mut views: ResMut<XrViews>,
     input: Res<XrInput>,
     mut events: NonSendMut<XrEvents>,
     mut app_exit: EventWriter<AppExit>,
@@ -326,9 +330,9 @@ pub fn xr_begin_frame(
                                 session_running.store(true, std::sync::atomic::Ordering::Relaxed);
                             }
                             xr::SessionState::STOPPING => {
-                                session.end().unwrap();
-                                session_running.store(false, std::sync::atomic::Ordering::Relaxed);
-                                app_exit.send(AppExit);
+                                // session.end().unwrap();
+                                // session_running.store(false, std::sync::atomic::Ordering::Relaxed);
+                                // app_exit.send(AppExit);
                             }
                             xr::SessionState::EXITING | xr::SessionState::LOSS_PENDING => {
                                 app_exit.send(AppExit);
@@ -353,8 +357,8 @@ pub fn xr_begin_frame(
     }
     {
         let _span = info_span!("xr_wait_frame").entered();
-        *frame_state.lock().unwrap() = match frame_waiter.lock().unwrap().wait() {
-            Ok(a) => a,
+        *frame_state = match frame_waiter.lock().unwrap().wait() {
+            Ok(a) => XrFrameState(a),
             Err(e) => {
                 warn!("error: {}", e);
                 return;
@@ -362,26 +366,28 @@ pub fn xr_begin_frame(
         };
     }
     {
-        let _span = info_span!("xr_begin_frame").entered();
-        swapchain.begin().unwrap()
-    }
-    {
         let _span = info_span!("xr_locate_views").entered();
-        *views.lock().unwrap() = session
-            .locate_views(
-                VIEW_TYPE,
-                frame_state.lock().unwrap().predicted_display_time,
-                &input.stage,
-            )
-            .unwrap()
-            .1;
+        warn!("locating views!!!!");
+        *views = XrViews(
+            session
+                .locate_views(VIEW_TYPE, frame_state.predicted_display_time, &input.stage)
+                .unwrap()
+                .1,
+        );
+    }
+}
+
+pub fn begin_frame(swapchain: Res<XrSwapchain>) {
+    let _span = info_span!("xr_begin_frame").entered();
+    if let Err(e) = swapchain.begin() {
+        eprintln!("failed to begin frame: {e}");
     }
 }
 
 pub fn post_frame(
     resolution: Res<XrResolution>,
-    format: Res<XrFormat>,
     swapchain: Res<XrSwapchain>,
+    format: Res<XrFormat>,
     mut manual_texture_views: ResMut<ManualTextureViews>,
 ) {
     {
@@ -433,8 +439,8 @@ pub fn end_frame(
     {
         let _span = info_span!("xr_end_frame").entered();
         let result = swapchain.end(
-            xr_frame_state.lock().unwrap().predicted_display_time,
-            &views.lock().unwrap(),
+            xr_frame_state.predicted_display_time,
+            &*views,
             &input.stage,
             **resolution,
             **environment_blend_mode,
@@ -448,22 +454,24 @@ pub fn end_frame(
 }
 
 pub fn locate_views(
-    views: Res<XrViews>,
+    mut views: ResMut<XrViews>,
     input: Res<XrInput>,
     session: Res<XrSession>,
     xr_frame_state: Res<XrFrameState>,
 ) {
     let _span = info_span!("xr_locate_views").entered();
-    *views.lock().unwrap() = match session.locate_views(
-        VIEW_TYPE,
-        xr_frame_state.lock().unwrap().predicted_display_time,
-        &input.stage,
-    ) {
-        Ok(this) => this,
-        Err(err) => {
-            warn!("error: {}", err);
-            return;
+    *views = XrViews(
+        match session.locate_views(
+            VIEW_TYPE,
+            xr_frame_state.predicted_display_time,
+            &input.stage,
+        ) {
+            Ok(this) => this,
+            Err(err) => {
+                warn!("error: {}", err);
+                return;
+            }
         }
-    }
-    .1;
+        .1,
+    );
 }

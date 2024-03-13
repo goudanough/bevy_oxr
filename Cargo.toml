@@ -14,7 +14,7 @@ force-link = ["openxr/linked"]
 [dependencies]
 anyhow = "1.0.75"
 ash = "0.37.3"
-bevy = "0.13"
+bevy = { version = "0.13", default-features = false, features = ["bevy_pbr", "bevy_winit"] }
 futures-lite = "2.0.1"
 mint = "0.5.9"
 openxr = { git = "https://github.com/goudanough/openxrs", rev = "feb116d548377f8c5aa66c80db7b28d236d18cf3", features = ["mint"] }

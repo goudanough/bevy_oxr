@@ -5,8 +5,8 @@ use std::sync::Mutex;
 use crate::resource_macros::*;
 use bevy::prelude::*;
 use openxr as xr;
-use xr::{CompositionLayerFlags, CompositionLayerBase};
 use xr::sys::CompositionLayerPassthroughFB;
+use xr::{CompositionLayerBase, CompositionLayerFlags};
 
 xr_resource_wrapper!(XrInstance, xr::Instance);
 xr_resource_wrapper!(XrSession, xr::Session<xr::AnyGraphics>);
@@ -14,11 +14,11 @@ xr_resource_wrapper!(XrPassthroughLayer, xr::sys::PassthroughLayerFB);
 xr_resource_wrapper!(XrEnvironmentBlendMode, xr::EnvironmentBlendMode);
 xr_resource_wrapper!(XrResolution, UVec2);
 xr_resource_wrapper!(XrFormat, wgpu::TextureFormat);
+xr_resource_wrapper!(XrFrameState, xr::FrameState);
+xr_resource_wrapper!(XrViews, Vec<xr::View>);
 xr_arc_resource_wrapper!(XrSessionRunning, AtomicBool);
 xr_arc_resource_wrapper!(XrFrameWaiter, Mutex<xr::FrameWaiter>);
 xr_arc_resource_wrapper!(XrSwapchain, Swapchain);
-xr_arc_resource_wrapper!(XrFrameState, Mutex<xr::FrameState>);
-xr_arc_resource_wrapper!(XrViews, Mutex<Vec<xr::View>>);
 
 pub enum Swapchain {
     Vulkan(SwapchainInner<xr::Vulkan>),

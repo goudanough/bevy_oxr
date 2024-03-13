@@ -417,13 +417,12 @@ pub fn initialize_xr_graphics(
         })
         .into(),
         XrInput::new(xr_instance, session.into_any_graphics())?,
-        Mutex::default().into(),
-        Mutex::new(xr::FrameState {
+        XrViews(vec![default(), default()]),
+        XrFrameState(xr::FrameState {
             predicted_display_time: xr::Time::from_nanos(1),
             predicted_display_period: xr::Duration::from_nanos(1),
             should_render: true,
-        })
-        .into(),
+        }),
     ))
 }
 
