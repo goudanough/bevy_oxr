@@ -1,15 +1,8 @@
 pub mod extensions;
 mod vulkan;
 
-use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderQueue};
+use crate::XrGraphicsData;
 use bevy::window::RawHandleWrapper;
-use wgpu::Instance;
-
-use crate::input::XrInput;
-use crate::resources::{
-    XrEnvironmentBlendMode, XrFormat, XrFrameState, XrFrameWaiter, XrInstance, XrResolution,
-    XrSession, XrSessionRunning, XrSwapchain, XrViews,
-};
 
 use openxr as xr;
 
@@ -44,31 +37,13 @@ pub fn initialize_xr_graphics(
     reqeusted_extensions: XrExtensions,
     prefered_blend_mode: XrPreferdBlendMode,
     app_info: XrAppInfo,
-) -> anyhow::Result<(
-    RenderDevice,
-    RenderQueue,
-    RenderAdapterInfo,
-    RenderAdapter,
-    Instance,
-    XrInstance,
-    XrSession,
-    XrEnvironmentBlendMode,
-    XrResolution,
-    XrFormat,
-    XrSessionRunning,
-    XrFrameWaiter,
-    XrSwapchain,
-    XrInput,
-    XrViews,
-    XrFrameState,
-)> {
+) -> anyhow::Result<XrGraphicsData> {
     vulkan::initialize_xr_graphics(window, reqeusted_extensions, prefered_blend_mode, app_info)
 }
 
 pub fn xr_entry() -> anyhow::Result<xr::Entry> {
     #[cfg(windows)]
-    let entry = Ok(xr::Entry::linked());
+    return Ok(xr::Entry::linked());
     #[cfg(not(windows))]
-    let entry = unsafe { xr::Entry::load().map_err(|e| anyhow::anyhow!(e)) };
-    entry
+    return unsafe { xr::Entry::load() }.map_err(|e| anyhow::anyhow!(e));
 }

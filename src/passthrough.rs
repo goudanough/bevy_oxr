@@ -4,7 +4,7 @@ use openxr::SystemId;
 
 use crate::{
     resources::{XrInstance, XrPassthroughLayer},
-    xr_init::XrRenderData,
+    XrSession,
 };
 use openxr as xr;
 use xr::{
@@ -14,14 +14,11 @@ use xr::{
     PassthroughFlagsFB, PassthroughLayerPurposeFB,
 };
 
-pub fn start_passthrough(render_data: &XrRenderData) -> (XrPassthroughLayer, PassthroughFB) {
-    let instance = &render_data.xr_instance;
-    let entry = instance.entry();
-    let instance = instance.as_raw();
-    let session = render_data.xr_session.as_raw();
-
-    let passthrough_fb_vtable =
-        unsafe { openxr::raw::PassthroughFB::load(entry, instance) }.unwrap();
+pub fn start_passthrough(
+    instance: &XrInstance,
+    session: &XrSession,
+) -> (XrPassthroughLayer, PassthroughFB) {
+    let vtable = instance.exts().fb_passthrough.unwrap();
 
     // Configuration for creating the passthrough feature
     let passthrough_create_info = PassthroughCreateInfoFB {
@@ -32,8 +29,8 @@ pub fn start_passthrough(render_data: &XrRenderData) -> (XrPassthroughLayer, Pas
 
     let mut passthrough_feature = openxr::sys::PassthroughFB::NULL;
     let result = unsafe {
-        (passthrough_fb_vtable.create_passthrough)(
-            session,
+        (vtable.create_passthrough)(
+            session.as_raw(),
             &passthrough_create_info,
             &mut passthrough_feature,
         )
@@ -48,15 +45,15 @@ pub fn start_passthrough(render_data: &XrRenderData) -> (XrPassthroughLayer, Pas
     let passthrough_layer_info = PassthroughLayerCreateInfoFB {
         ty: PassthroughLayerCreateInfoFB::TYPE,
         next: null(),
-        passthrough: passthrough,
+        passthrough,
         flags: PassthroughFlagsFB::IS_RUNNING_AT_CREATION,
         purpose: PassthroughLayerPurposeFB::RECONSTRUCTION,
     };
 
     let mut passthrough_layer_fb = PassthroughLayerFB::NULL;
     let result = unsafe {
-        (passthrough_fb_vtable.create_passthrough_layer)(
-            session,
+        (vtable.create_passthrough_layer)(
+            session.as_raw(),
             &passthrough_layer_info,
             &mut passthrough_layer_fb,
         )
@@ -66,9 +63,12 @@ pub fn start_passthrough(render_data: &XrRenderData) -> (XrPassthroughLayer, Pas
         panic!("Failed to create a passthough layer:\n{result:?}");
     }
 
-    (XrPassthroughLayer::new(passthrough_layer_fb), passthrough_feature)
+    (
+        XrPassthroughLayer::new(passthrough_layer_fb),
+        passthrough_feature,
+    )
 }
 
-pub fn supports_passthrough(a: &XrInstance, b: SystemId) -> Result<bool, ()> {
-    Ok(true)
+pub fn supports_passthrough(_a: &XrInstance, _b: SystemId) -> bool {
+    true
 }

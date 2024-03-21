@@ -205,7 +205,9 @@ impl ops::BitAnd for XrExtensions {
             self.0.varjo_environment_depth_estimation && rhs.0.varjo_environment_depth_estimation;
         out.varjo_marker_tracking = self.0.varjo_marker_tracking && rhs.0.varjo_marker_tracking;
         out.varjo_view_offset = self.0.varjo_view_offset && rhs.0.varjo_view_offset;
+        #[cfg(target_os = "android")]
         and_android_only_exts(&self, &rhs, &mut out);
+        #[cfg(windows)]
         and_windows_only_exts(&self, &rhs, &mut out);
         for ext in self.0.other {
             if rhs.0.other.contains(&ext) {
@@ -216,10 +218,6 @@ impl ops::BitAnd for XrExtensions {
     }
 }
 
-#[cfg(not(target_os = "android"))]
-fn and_android_only_exts(lhs: &XrExtensions, rhs: &XrExtensions, out: &mut ExtensionSet) {}
-#[cfg(not(windows))]
-fn and_windows_only_exts(lhs: &XrExtensions, rhs: &XrExtensions, out: &mut ExtensionSet) {}
 #[cfg(target_os = "android")]
 fn and_android_only_exts(lhs: &XrExtensions, rhs: &XrExtensions, out: &mut ExtensionSet) {
     out.oculus_android_session_state_enable =
@@ -236,6 +234,7 @@ fn and_android_only_exts(lhs: &XrExtensions, rhs: &XrExtensions, out: &mut Exten
     out.khr_android_create_instance =
         lhs.0.khr_android_create_instance && rhs.0.khr_android_create_instance;
 }
+
 #[cfg(windows)]
 fn and_windows_only_exts(lhs: &XrExtensions, rhs: &XrExtensions, out: &mut ExtensionSet) {
     out.ext_win32_appcontainer_compatible =

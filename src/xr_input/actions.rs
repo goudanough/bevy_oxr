@@ -48,7 +48,7 @@ pub fn setup_oxr_actions(world: &mut World) {
     let hands = [left_path, right_path];
 
     let mut oxr_action_sets = Vec::new();
-    let mut action_sets = XrActionSets { sets: default() };
+    let mut action_sets = XrActionSets::default();
     // let mut action_bindings: HashMap<&'static str, Vec<xr::Path>> = HashMap::new();
     let mut action_bindings: HashMap<
         (&'static str, &'static str),
@@ -61,22 +61,13 @@ pub fn setup_oxr_actions(world: &mut World) {
             .expect("Unable to create action set");
         for (action_name, action) in set.actions.into_iter() {
             use self::create_action as ca;
+            use ActionType::*;
             let typed_action = match action.action_type {
-                ActionType::Vec2 => {
-                    TypedAction::Vec2(ca(&action, action_name, &oxr_action_set, &hands))
-                }
-                ActionType::F32 => {
-                    TypedAction::F32(ca(&action, action_name, &oxr_action_set, &hands))
-                }
-                ActionType::Bool => {
-                    TypedAction::Bool(ca(&action, action_name, &oxr_action_set, &hands))
-                }
-                ActionType::PoseF => {
-                    TypedAction::PoseF(ca(&action, action_name, &oxr_action_set, &hands))
-                }
-                ActionType::Haptic => {
-                    TypedAction::Haptic(ca(&action, action_name, &oxr_action_set, &hands))
-                }
+                Vec2 => TypedAction::Vec2(ca(&action, action_name, &oxr_action_set, &hands)),
+                F32 => TypedAction::F32(ca(&action, action_name, &oxr_action_set, &hands)),
+                Bool => TypedAction::Bool(ca(&action, action_name, &oxr_action_set, &hands)),
+                PoseF => TypedAction::PoseF(ca(&action, action_name, &oxr_action_set, &hands)),
+                Haptic => TypedAction::Haptic(ca(&action, action_name, &oxr_action_set, &hands)),
             };
             actions.insert(action_name, typed_action);
             for (device_path, bindings) in action.bindings.into_iter() {
@@ -104,18 +95,24 @@ pub fn setup_oxr_actions(world: &mut World) {
     let mut b_indings: HashMap<&'static str, Vec<Binding>> = HashMap::new();
     for (dev, mut bindings) in action_sets
         .sets
+        // Iterate over K/V pairs in the parent hashmap
         .iter()
+        // Flatten the children hashmaps into tuples of (set_name, action_name, value)
         .flat_map(|(set_name, set)| {
             set.actions
                 .iter()
                 .map(move |(action_name, a)| (set_name, action_name, a))
         })
+        // zip each tuple with an ungodly hashmap
         .zip([&action_bindings].into_iter().cycle())
         .flat_map(move |((set_name, action_name, action), bindings)| {
+            // lookup by set_name and action_name
             bindings
                 .get(&(set_name as &'static str, action_name as &'static str))
                 .unwrap()
+                // iterate over K/V pairs again
                 .iter()
+                // Map to tuples of (value, dev_string, binding_paths)
                 .map(move |(dev, bindings)| (action, dev, bindings))
         })
         .map(|(action, dev, bindings)| {
@@ -259,7 +256,7 @@ pub struct ActionSet {
     actions: HashMap<&'static str, TypedAction>,
 }
 
-#[derive(Resource)]
+#[derive(Resource, Default)]
 pub struct XrActionSets {
     sets: HashMap<&'static str, ActionSet>,
 }
@@ -284,19 +281,25 @@ pub enum ActionError {
 }
 
 impl XrActionSets {
+    fn get_typed_action(
+        &self,
+        action_set: &'static str,
+        action_name: &'static str,
+    ) -> Result<&TypedAction, ActionError> {
+        self.sets
+            .get(action_set)
+            .ok_or(ActionError::NoActionSet)?
+            .actions
+            .get(action_name)
+            .ok_or(ActionError::NoAction)
+    }
+
     pub fn get_action_vec2(
         &self,
         action_set: &'static str,
         action_name: &'static str,
     ) -> Result<&Action<Vector2f>, ActionError> {
-        let action = self
-            .sets
-            .get(action_set)
-            .ok_or(ActionError::NoActionSet)?
-            .actions
-            .get(action_name)
-            .ok_or(ActionError::NoAction)?;
-        match action {
+        match self.get_typed_action(action_set, action_name)? {
             TypedAction::Vec2(a) => Ok(a),
             _ => Err(ActionError::WrongActionType),
         }
@@ -306,14 +309,7 @@ impl XrActionSets {
         action_set: &'static str,
         action_name: &'static str,
     ) -> Result<&Action<f32>, ActionError> {
-        let action = self
-            .sets
-            .get(action_set)
-            .ok_or(ActionError::NoActionSet)?
-            .actions
-            .get(action_name)
-            .ok_or(ActionError::NoAction)?;
-        match action {
+        match self.get_typed_action(action_set, action_name)? {
             TypedAction::F32(a) => Ok(a),
             _ => Err(ActionError::WrongActionType),
         }
@@ -323,14 +319,7 @@ impl XrActionSets {
         action_set: &'static str,
         action_name: &'static str,
     ) -> Result<&Action<bool>, ActionError> {
-        let action = self
-            .sets
-            .get(action_set)
-            .ok_or(ActionError::NoActionSet)?
-            .actions
-            .get(action_name)
-            .ok_or(ActionError::NoAction)?;
-        match action {
+        match self.get_typed_action(action_set, action_name)? {
             TypedAction::Bool(a) => Ok(a),
             _ => Err(ActionError::WrongActionType),
         }
@@ -340,14 +329,7 @@ impl XrActionSets {
         action_set: &'static str,
         action_name: &'static str,
     ) -> Result<&Action<Posef>, ActionError> {
-        let action = self
-            .sets
-            .get(action_set)
-            .ok_or(ActionError::NoActionSet)?
-            .actions
-            .get(action_name)
-            .ok_or(ActionError::NoAction)?;
-        match action {
+        match self.get_typed_action(action_set, action_name)? {
             TypedAction::PoseF(a) => Ok(a),
             _ => Err(ActionError::WrongActionType),
         }
@@ -357,14 +339,7 @@ impl XrActionSets {
         action_set: &'static str,
         action_name: &'static str,
     ) -> Result<&Action<Haptic>, ActionError> {
-        let action = self
-            .sets
-            .get(action_set)
-            .ok_or(ActionError::NoActionSet)?
-            .actions
-            .get(action_name)
-            .ok_or(ActionError::NoAction)?;
-        match action {
+        match self.get_typed_action(action_set, action_name)? {
             TypedAction::Haptic(a) => Ok(a),
             _ => Err(ActionError::WrongActionType),
         }

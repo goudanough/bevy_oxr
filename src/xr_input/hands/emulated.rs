@@ -1,7 +1,5 @@
-use std::f32::consts::PI;
-
 use bevy::prelude::*;
-use openxr::{ActionTy, HandJoint};
+use openxr::{sys, ActionTy, HandJoint};
 
 use super::common::{get_bone_gizmo_style, HandBoneRadius};
 use crate::{
@@ -161,88 +159,63 @@ pub(crate) fn update_hand_skeleton_from_emulated(
             Hand::Right,
         ),
     ] {
-        let thumb_curl = match action_sets
-            .get_action_bool(HAND_ACTION_SET, "thumb_touch")
-            .unwrap()
-            .state(&session, subaction_path)
-            .unwrap()
-            .current_state
-        {
+        let get_axis = |action_name| {
+            action_sets
+                .get_action_f32(HAND_ACTION_SET, action_name)
+                .unwrap()
+                .state(&session, subaction_path)
+                .unwrap()
+                .current_state
+        };
+        let get_state = |action_name| {
+            action_sets
+                .get_action_bool(HAND_ACTION_SET, action_name)
+                .unwrap()
+                .state(&session, subaction_path)
+                .unwrap()
+                .current_state
+        };
+        let thumb_curl = match get_state("thumb_touch") {
             true => 1.0,
             false => 0.0,
         };
-        let index_curl = action_sets
-            .get_action_f32(HAND_ACTION_SET, "index_value")
-            .unwrap()
-            .state(&session, subaction_path)
-            .unwrap()
-            .current_state;
-        let middle_curl = action_sets
-            .get_action_f32(HAND_ACTION_SET, "middle_value")
-            .unwrap()
-            .state(&session, subaction_path)
-            .unwrap()
-            .current_state;
-        let ring_curl = action_sets
-            .get_action_f32(HAND_ACTION_SET, "ring_value")
-            .unwrap()
-            .state(&session, subaction_path)
-            .unwrap()
-            .current_state;
-        let little_curl = action_sets
-            .get_action_f32(HAND_ACTION_SET, "little_value")
-            .unwrap()
-            .state(&session, subaction_path)
-            .unwrap()
-            .current_state;
-        match hand {
-            Hand::Left => match left {
-                Ok(hand_transform) => {
-                    data[0] = update_hand_bones_emulated(
-                        hand_transform,
-                        hand,
-                        thumb_curl,
-                        index_curl,
-                        middle_curl,
-                        ring_curl,
-                        little_curl,
-                    );
-                }
-                Err(_) => debug!("no left controller transform for hand bone emulation"),
-            },
-            Hand::Right => match right {
-                Ok(hand_transform) => {
-                    data[1] = update_hand_bones_emulated(
-                        hand_transform,
-                        hand,
-                        thumb_curl,
-                        index_curl,
-                        middle_curl,
-                        ring_curl,
-                        little_curl,
-                    );
-                }
-                Err(_) => debug!("no right controller transform for hand bone emulation"),
-            },
+        let index_curl = get_axis("index_value");
+        let middle_curl = get_axis("middle_value");
+        let ring_curl = get_axis("ring_value");
+        let little_curl = get_axis("little_value");
+
+        let hand_side = match hand {
+            Hand::Left => &left,
+            Hand::Right => &right,
+        };
+        if let Ok(hand_transform) = hand_side {
+            data[hand as usize] = update_hand_bones_emulated(
+                hand_transform,
+                hand,
+                thumb_curl,
+                index_curl,
+                middle_curl,
+                ring_curl,
+                little_curl,
+            )
+        } else {
+            debug!("no {hand:?} controller transform for hand bone emulation")
         }
     }
     let trt = tracking_root_transform.single();
     for (mut t, bone, hand, status, mut radius) in bones.iter_mut() {
-        match status {
-            BoneTrackingStatus::Emulated => {}
-            BoneTrackingStatus::Tracked => continue,
+        if let BoneTrackingStatus::Tracked = status {
+            continue;
         }
         radius.0 = get_bone_gizmo_style(bone).0;
 
-        *t = data[match hand {
-            Hand::Left => 0,
-            Hand::Right => 1,
-        }][bone.get_index_from_bone()];
+        *t = data[*hand as usize][*bone as usize];
         *t = t.with_scale(trt.scale);
         *t = t.with_rotation(trt.rotation * t.rotation);
         *t = t.with_translation(trt.transform_point(t.translation));
     }
 }
+
 pub fn update_hand_bones_emulated(
     controller_transform: &Transform,
     hand: Hand,
@@ -252,10 +225,10 @@ pub fn update_hand_bones_emulated(
     ring_curl: f32,
     little_curl: f32,
 ) -> [Transform; 26] {
-    let left_hand_rot = Quat::from_rotation_y(PI);
-    let hand_translation: Vec3 = controller_transform.translation;
+    let left_hand_rot = Quat::from_rotation_y(180_f32.to_radians());
+    let hand_translation = controller_transform.translation;
 
-    let controller_quat: Quat = match hand {
+    let controller_quat = match hand {
         Hand::Left => controller_transform.rotation.mul_quat(left_hand_rot),
         Hand::Right => controller_transform.rotation,
     };
@@ -268,17 +241,19 @@ pub fn update_hand_bones_emulated(
     let mut calc_transforms = [Transform::default(); 26];
 
     //get palm quat
-    let y = Quat::from_rotation_y(-90.0 * PI / 180.0);
-    let x = Quat::from_rotation_x(-90.0 * PI / 180.0);
+    let y = Quat::from_rotation_y(-90_f32.to_radians());
+    let x = Quat::from_rotation_x(-90_f32.to_radians());
     let palm_quat = controller_quat.mul_quat(y).mul_quat(x);
     //get simulated bones
-    let hand_transform_array: [Transform; 26] = get_simulated_open_hand_transforms(hand);
+    let hand_transform_array = get_simulated_open_hand_transforms(hand);
+
     //palm
     let palm = hand_transform_array[HandJoint::PALM];
     calc_transforms[HandJoint::PALM] = Transform {
         translation: hand_translation + palm.translation,
         ..default()
     };
+
     //wrist
     let wrist = hand_transform_array[HandJoint::WRIST];
     calc_transforms[HandJoint::WRIST] = Transform {
@@ -286,249 +261,106 @@ pub fn update_hand_bones_emulated(
         ..default()
     };
 
-    //thumb
-    let thumb_joints = [
-        HandJoint::THUMB_METACARPAL,
-        HandJoint::THUMB_PROXIMAL,
-        HandJoint::THUMB_DISTAL,
-        HandJoint::THUMB_TIP,
-    ];
-    let mut prior_start: Option<Vec3> = None;
-    let mut prior_quat: Option<Quat> = None;
-    let mut prior_vector: Option<Vec3> = None;
-    let splay = Quat::from_rotation_y(splay_direction * 30.0 * PI / 180.0);
-    let huh = Quat::from_rotation_x(-35.0 * PI / 180.0);
-    let splay_quat = palm_quat.mul_quat(huh).mul_quat(splay);
-    for bone in thumb_joints.iter() {
-        match prior_start {
-            Some(start) => {
-                let curl_angle: f32 = get_bone_curl_angle(*bone, thumb_curl);
-                let tp_lrot = Quat::from_rotation_y(splay_direction * curl_angle * PI / 180.0);
-                let tp_quat = prior_quat.unwrap().mul_quat(tp_lrot);
-                let thumb_prox = hand_transform_array[*bone];
-                let tp_start = start + prior_vector.unwrap();
-                let tp_vector = tp_quat.mul_vec3(thumb_prox.translation);
-                prior_start = Some(tp_start);
-                prior_quat = Some(tp_quat);
-                prior_vector = Some(tp_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tp_start + tp_vector,
-                    ..default()
-                };
-            }
-            None => {
-                let thumb_meta = hand_transform_array[*bone];
-                let tm_start = hand_translation
-                    + palm_quat.mul_vec3(palm.translation)
-                    + palm_quat.mul_vec3(wrist.translation);
-                let tm_vector = palm_quat.mul_vec3(thumb_meta.translation);
-                prior_start = Some(tm_start);
-                prior_quat = Some(splay_quat);
-                prior_vector = Some(tm_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tm_start + tm_vector,
-                    ..default()
-                };
-            }
-        }
-    }
+    let mut position_hand = |joints: &[sys::HandJointEXT], curl, _splay @ (x, y): (f32, f32)| {
+        let splay_y = Quat::from_rotation_y((splay_direction * y).to_radians());
+        let splay_x = Quat::from_rotation_x(x.to_radians());
+        let splay_quat = palm_quat.mul_quat(splay_x).mul_quat(splay_y);
 
-    //index
-    let thumb_joints = [
-        HandJoint::INDEX_METACARPAL,
-        HandJoint::INDEX_PROXIMAL,
-        HandJoint::INDEX_INTERMEDIATE,
-        HandJoint::INDEX_DISTAL,
-        HandJoint::INDEX_TIP,
-    ];
-    let mut prior_start: Option<Vec3> = None;
-    let mut prior_quat: Option<Quat> = None;
-    let mut prior_vector: Option<Vec3> = None;
-    let splay = Quat::from_rotation_y(splay_direction * 10.0 * PI / 180.0);
-    let splay_quat = palm_quat.mul_quat(splay);
-    for bone in thumb_joints.iter() {
-        match prior_start {
-            Some(start) => {
-                let curl_angle: f32 = get_bone_curl_angle(*bone, index_curl);
-                let tp_lrot = Quat::from_rotation_x(curl_angle * PI / 180.0);
-                let tp_quat = prior_quat.unwrap().mul_quat(tp_lrot);
-                let thumb_prox = hand_transform_array[*bone];
-                let tp_start = start + prior_vector.unwrap();
-                let tp_vector = tp_quat.mul_vec3(thumb_prox.translation);
-                prior_start = Some(tp_start);
-                prior_quat = Some(tp_quat);
-                prior_vector = Some(tp_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tp_start + tp_vector,
-                    ..default()
-                };
-            }
-            None => {
-                let thumb_meta = hand_transform_array[*bone];
-                let tm_start = hand_translation
-                    + palm_quat.mul_vec3(palm.translation)
-                    + palm_quat.mul_vec3(wrist.translation);
-                let tm_vector = palm_quat.mul_vec3(thumb_meta.translation);
-                prior_start = Some(tm_start);
-                prior_quat = Some(splay_quat);
-                prior_vector = Some(tm_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tm_start + tm_vector,
-                    ..default()
-                };
-            }
-        }
-    }
+        let bone = joints[0];
 
-    //middle
-    let thumb_joints = [
-        HandJoint::MIDDLE_METACARPAL,
-        HandJoint::MIDDLE_PROXIMAL,
-        HandJoint::MIDDLE_INTERMEDIATE,
-        HandJoint::MIDDLE_DISTAL,
-        HandJoint::MIDDLE_TIP,
-    ];
-    let mut prior_start: Option<Vec3> = None;
-    let mut prior_quat: Option<Quat> = None;
-    let mut prior_vector: Option<Vec3> = None;
-    let splay = Quat::from_rotation_y(splay_direction * 0.0 * PI / 180.0);
-    let splay_quat = palm_quat.mul_quat(splay);
-    for bone in thumb_joints.iter() {
-        match prior_start {
-            Some(start) => {
-                let curl_angle: f32 = get_bone_curl_angle(*bone, middle_curl);
-                let tp_lrot = Quat::from_rotation_x(curl_angle * PI / 180.0);
-                let tp_quat = prior_quat.unwrap().mul_quat(tp_lrot);
-                let thumb_prox = hand_transform_array[*bone];
-                let tp_start = start + prior_vector.unwrap();
-                let tp_vector = tp_quat.mul_vec3(thumb_prox.translation);
-                prior_start = Some(tp_start);
-                prior_quat = Some(tp_quat);
-                prior_vector = Some(tp_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tp_start + tp_vector,
-                    ..default()
-                };
-            }
-            None => {
-                let thumb_meta = hand_transform_array[*bone];
-                let tm_start = hand_translation
-                    + palm_quat.mul_vec3(palm.translation)
-                    + palm_quat.mul_vec3(wrist.translation);
-                let tm_vector = palm_quat.mul_vec3(thumb_meta.translation);
-                prior_start = Some(tm_start);
-                prior_quat = Some(splay_quat);
-                prior_vector = Some(tm_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tm_start + tm_vector,
-                    ..default()
-                };
-            }
-        }
-    }
-    //ring
-    let thumb_joints = [
-        HandJoint::RING_METACARPAL,
-        HandJoint::RING_PROXIMAL,
-        HandJoint::RING_INTERMEDIATE,
-        HandJoint::RING_DISTAL,
-        HandJoint::RING_TIP,
-    ];
-    let mut prior_start: Option<Vec3> = None;
-    let mut prior_quat: Option<Quat> = None;
-    let mut prior_vector: Option<Vec3> = None;
-    let splay = Quat::from_rotation_y(splay_direction * -10.0 * PI / 180.0);
-    let splay_quat = palm_quat.mul_quat(splay);
-    for bone in thumb_joints.iter() {
-        match prior_start {
-            Some(start) => {
-                let curl_angle: f32 = get_bone_curl_angle(*bone, ring_curl);
-                let tp_lrot = Quat::from_rotation_x(curl_angle * PI / 180.0);
-                let tp_quat = prior_quat.unwrap().mul_quat(tp_lrot);
-                let thumb_prox = hand_transform_array[*bone];
-                let tp_start = start + prior_vector.unwrap();
-                let tp_vector = tp_quat.mul_vec3(thumb_prox.translation);
-                prior_start = Some(tp_start);
-                prior_quat = Some(tp_quat);
-                prior_vector = Some(tp_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tp_start + tp_vector,
-                    ..default()
-                };
-            }
-            None => {
-                let thumb_meta = hand_transform_array[*bone];
-                let tm_start = hand_translation
-                    + palm_quat.mul_vec3(palm.translation)
-                    + palm_quat.mul_vec3(wrist.translation);
-                let tm_vector = palm_quat.mul_vec3(thumb_meta.translation);
-                prior_start = Some(tm_start);
-                prior_quat = Some(splay_quat);
-                prior_vector = Some(tm_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tm_start + tm_vector,
-                    ..default()
-                };
-            }
-        }
-    }
+        let meta = hand_transform_array[bone];
+        let tm_start = hand_translation
+            + palm_quat.mul_vec3(palm.translation)
+            + palm_quat.mul_vec3(wrist.translation);
+        let tm_vector = palm_quat.mul_vec3(meta.translation);
+        //store it
+        calc_transforms[bone] = Transform {
+            translation: tm_start + tm_vector,
+            ..default()
+        };
 
-    //little
-    let thumb_joints = [
-        HandJoint::LITTLE_METACARPAL,
-        HandJoint::LITTLE_PROXIMAL,
-        HandJoint::LITTLE_INTERMEDIATE,
-        HandJoint::LITTLE_DISTAL,
-        HandJoint::LITTLE_TIP,
-    ];
-    let mut prior_start: Option<Vec3> = None;
-    let mut prior_quat: Option<Quat> = None;
-    let mut prior_vector: Option<Vec3> = None;
-    let splay = Quat::from_rotation_y(splay_direction * -20.0 * PI / 180.0);
-    let splay_quat = palm_quat.mul_quat(splay);
-    for bone in thumb_joints.iter() {
-        match prior_start {
-            Some(start) => {
-                let curl_angle: f32 = get_bone_curl_angle(*bone, little_curl);
-                let tp_lrot = Quat::from_rotation_x(curl_angle * PI / 180.0);
-                let tp_quat = prior_quat.unwrap().mul_quat(tp_lrot);
-                let thumb_prox = hand_transform_array[*bone];
-                let tp_start = start + prior_vector.unwrap();
-                let tp_vector = tp_quat.mul_vec3(thumb_prox.translation);
-                prior_start = Some(tp_start);
-                prior_quat = Some(tp_quat);
-                prior_vector = Some(tp_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tp_start + tp_vector,
-                    ..default()
-                };
-            }
-            None => {
-                let thumb_meta = hand_transform_array[*bone];
-                let tm_start = hand_translation
-                    + palm_quat.mul_vec3(palm.translation)
-                    + palm_quat.mul_vec3(wrist.translation);
-                let tm_vector = palm_quat.mul_vec3(thumb_meta.translation);
-                prior_start = Some(tm_start);
-                prior_quat = Some(splay_quat);
-                prior_vector = Some(tm_vector);
-                //store it
-                calc_transforms[*bone] = Transform {
-                    translation: tm_start + tm_vector,
-                    ..default()
-                };
-            }
+        let mut prior_start = tm_start;
+        let mut prior_quat = splay_quat;
+        let mut prior_vector = tm_vector;
+
+        for &bone in &joints[1..] {
+            let curl_angle: f32 = get_bone_curl_angle(bone, curl);
+            let tp_lrot = Quat::from_rotation_y((splay_direction * curl_angle).to_radians());
+            let tp_quat = prior_quat.mul_quat(tp_lrot);
+            let prox = hand_transform_array[bone];
+            let tp_start = prior_start + prior_vector;
+            let tp_vector = tp_quat.mul_vec3(prox.translation);
+            //store it
+            calc_transforms[bone] = Transform {
+                translation: tp_start + tp_vector,
+                ..default()
+            };
+
+            prior_start = tp_start;
+            prior_quat = tp_quat;
+            prior_vector = tp_vector;
         }
-    }
+    };
+
+    position_hand(
+        &[
+            HandJoint::THUMB_METACARPAL,
+            HandJoint::THUMB_PROXIMAL,
+            HandJoint::THUMB_DISTAL,
+            HandJoint::THUMB_TIP,
+        ],
+        thumb_curl,
+        (-35., 30.),
+    );
+
+    position_hand(
+        &[
+            HandJoint::INDEX_METACARPAL,
+            HandJoint::INDEX_PROXIMAL,
+            HandJoint::INDEX_INTERMEDIATE,
+            HandJoint::INDEX_DISTAL,
+            HandJoint::INDEX_TIP,
+        ],
+        index_curl,
+        (0., 10.),
+    );
+
+    position_hand(
+        &[
+            HandJoint::MIDDLE_METACARPAL,
+            HandJoint::MIDDLE_PROXIMAL,
+            HandJoint::MIDDLE_INTERMEDIATE,
+            HandJoint::MIDDLE_DISTAL,
+            HandJoint::MIDDLE_TIP,
+        ],
+        middle_curl,
+        (0., 0.),
+    );
+
+    position_hand(
+        &[
+            HandJoint::RING_METACARPAL,
+            HandJoint::RING_PROXIMAL,
+            HandJoint::RING_INTERMEDIATE,
+            HandJoint::RING_DISTAL,
+            HandJoint::RING_TIP,
+        ],
+        ring_curl,
+        (0., -10.),
+    );
+
+    position_hand(
+        &[
+            HandJoint::LITTLE_METACARPAL,
+            HandJoint::LITTLE_PROXIMAL,
+            HandJoint::LITTLE_INTERMEDIATE,
+            HandJoint::LITTLE_DISTAL,
+            HandJoint::LITTLE_TIP,
+        ],
+        little_curl,
+        (0., -20.),
+    );
+
     calc_transforms
 }
 
@@ -544,7 +376,5 @@ fn get_bone_curl_angle(bone: HandJoint, curl: f32) -> f32 {
         HandJoint::THUMB_METACARPAL => 0.1,
         _ => 1.0,
     };
-    let curl_angle = -((mul * curl * 80.0) + 5.0);
-    #[allow(clippy::needless_return)]
-    return curl_angle;
+    -((mul * curl * 80.0) + 5.0)
 }

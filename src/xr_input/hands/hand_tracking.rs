@@ -67,14 +67,14 @@ pub struct HandJoints {
     inner: [HandJoint; 26],
 }
 impl HandJoints {
+    pub fn new(inner: [HandJoint; 26]) -> Self {
+        Self { inner }
+    }
     pub fn inner(&self) -> &[HandJoint; 26] {
         &self.inner
     }
-}
-
-impl HandJoints {
     pub fn get_joint(&self, bone: HandBone) -> &HandJoint {
-        &self.inner[bone.get_index_from_bone()]
+        &self.inner[bone as usize]
     }
 }
 
@@ -87,34 +87,29 @@ impl<'a> HandTrackingRef<'a> {
                     Hand::Left => &self.tracking.left_hand,
                     Hand::Right => &self.tracking.right_hand,
                 },
-                self.frame_state.lock().unwrap().predicted_display_time,
+                self.frame_state.predicted_display_time,
             )
             .unwrap()
             .map(|joints| {
-                joints
-                    .into_iter()
-                    .map(|joint| HandJoint {
-                        position: joint.pose.position.to_vec3(),
-                        orientation: joint.pose.orientation.to_quat(),
-                        position_valid: joint
-                            .location_flags
-                            .contains(SpaceLocationFlags::POSITION_VALID),
-                        position_tracked: joint
-                            .location_flags
-                            .contains(SpaceLocationFlags::POSITION_TRACKED),
-                        orientation_valid: joint
-                            .location_flags
-                            .contains(SpaceLocationFlags::ORIENTATION_VALID),
-                        orientation_tracked: joint
-                            .location_flags
-                            .contains(SpaceLocationFlags::ORIENTATION_TRACKED),
-                        radius: joint.radius,
-                    })
-                    .collect::<Vec<HandJoint>>()
-                    .try_into()
-                    .unwrap()
+                joints.map(|joint| HandJoint {
+                    position: joint.pose.position.to_vec3(),
+                    orientation: joint.pose.orientation.to_quat(),
+                    position_valid: joint
+                        .location_flags
+                        .contains(SpaceLocationFlags::POSITION_VALID),
+                    position_tracked: joint
+                        .location_flags
+                        .contains(SpaceLocationFlags::POSITION_TRACKED),
+                    orientation_valid: joint
+                        .location_flags
+                        .contains(SpaceLocationFlags::ORIENTATION_VALID),
+                    orientation_tracked: joint
+                        .location_flags
+                        .contains(SpaceLocationFlags::ORIENTATION_TRACKED),
+                    radius: joint.radius,
+                })
             })
-            .map(|joints| HandJoints { inner: joints })
+            .map(HandJoints::new)
     }
 }
 
@@ -167,33 +162,26 @@ pub fn update_hand_bones(
         &mut BoneTrackingStatus,
     )>,
 ) {
-    let hand_ref = match hand_tracking.as_ref() {
-        Some(h) => h.get_ref(&xr_input, &xr_frame_state),
-        None => {
-            warn!("No Handtracking data!");
-            return;
-        }
+    let Some(hand_ref) = hand_tracking else {
+        warn!("No Handtracking data!");
+        return;
     };
+    let hand_ref = hand_ref.get_ref(&xr_input, &xr_frame_state);
+
     let root_transform = root_query.get_single().unwrap();
     let left_hand_data = hand_ref.get_poses(Hand::Left);
     let right_hand_data = hand_ref.get_poses(Hand::Right);
+    let disabled_tracking = disabled_tracking.as_ref().map(Res::as_ref);
     bones
         .par_iter_mut()
         .for_each(|(mut transform, hand, bone, mut radius, mut status)| {
-            match (&hand, disabled_tracking.as_ref().map(|d| d.as_ref())) {
-                (Hand::Left, Some(DisableHandTracking::OnlyLeft)) => {
-                    *status = BoneTrackingStatus::Emulated;
-                    return;
-                }
-                (Hand::Right, Some(DisableHandTracking::OnlyRight)) => {
-                    *status = BoneTrackingStatus::Emulated;
-                    return;
-                }
-                _ => {}
+            use DisableHandTracking::*;
+            if let (Hand::Left, Some(OnlyLeft | OnlyRight)) = (&hand, disabled_tracking) {
+                *status = BoneTrackingStatus::Emulated;
+                return;
             }
             let bone_data = match (hand, &left_hand_data, &right_hand_data) {
-                (Hand::Left, Some(data), _) => data.get_joint(*bone),
-                (Hand::Right, _, Some(data)) => data.get_joint(*bone),
+                (Hand::Left, Some(data), _) | (Hand::Right, _, Some(data)) => data.get_joint(*bone),
                 _ => {
                     *status = BoneTrackingStatus::Emulated;
                     return;

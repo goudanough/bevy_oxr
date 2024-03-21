@@ -1,3 +1,4 @@
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::sync::atomic::AtomicBool;
 use std::sync::Mutex;
@@ -5,8 +6,8 @@ use std::sync::Mutex;
 use crate::resource_macros::*;
 use bevy::prelude::*;
 use openxr as xr;
-use xr::{CompositionLayerFlags, CompositionLayerBase};
 use xr::sys::CompositionLayerPassthroughFB;
+use xr::{CompositionLayerBase, CompositionLayerFlags};
 
 xr_resource_wrapper!(XrInstance, xr::Instance);
 xr_resource_wrapper!(XrSession, xr::Session<xr::AnyGraphics>);
@@ -15,10 +16,26 @@ xr_resource_wrapper!(XrEnvironmentBlendMode, xr::EnvironmentBlendMode);
 xr_resource_wrapper!(XrResolution, UVec2);
 xr_resource_wrapper!(XrFormat, wgpu::TextureFormat);
 xr_arc_resource_wrapper!(XrSessionRunning, AtomicBool);
-xr_arc_resource_wrapper!(XrFrameWaiter, Mutex<xr::FrameWaiter>);
 xr_arc_resource_wrapper!(XrSwapchain, Swapchain);
-xr_arc_resource_wrapper!(XrFrameState, Mutex<xr::FrameState>);
-xr_arc_resource_wrapper!(XrViews, Mutex<Vec<xr::View>>);
+xr_arc_resource_wrapper!(XrFrameState, xr::FrameState);
+xr_arc_resource_wrapper!(XrViews, Vec<xr::View>);
+
+#[derive(Resource)]
+pub struct XrFrameWaiter(pub xr::FrameWaiter);
+
+impl Deref for XrFrameWaiter {
+    type Target = xr::FrameWaiter;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for XrFrameWaiter {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 pub enum Swapchain {
     Vulkan(SwapchainInner<xr::Vulkan>),
@@ -91,7 +108,6 @@ impl<G: xr::Graphics> SwapchainInner<G> {
 
     fn get_render_views(&self) -> (wgpu::TextureView, wgpu::TextureView) {
         let texture = &self.buffers[*self.image_index.lock().unwrap()];
-
         (
             texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2),
@@ -141,77 +157,50 @@ impl<G: xr::Graphics> SwapchainInner<G> {
             },
         };
         let swapchain = self.handle.lock().unwrap();
-        if views.len() == 0 {
+        if views.is_empty() {
             warn!("views are len of 0");
             return Ok(());
         }
-        match passthrough_layer {
-            Some(pass) => {
-                // info!("Rendering with pass through");
-                let passthrough_layer = xr::sys::CompositionLayerPassthroughFB {
-                    ty: CompositionLayerPassthroughFB::TYPE,
-                    next: ptr::null(),
-                    flags: CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
-                    space: xr::sys::Space::NULL,
-                    layer_handle: pass.0,
-                };
-                self.stream.lock().unwrap().end(
-                    predicted_display_time,
-                    environment_blend_mode,
-                    &[
-                        unsafe {
-                            &*(&passthrough_layer as *const _ as *const CompositionLayerBase<G>)
-                        },
-                        &xr::CompositionLayerProjection::new()
-                            .layer_flags(CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
-                            .space(stage)
-                            .views(&[
-                                xr::CompositionLayerProjectionView::new()
-                                    .pose(views[0].pose)
-                                    .fov(views[0].fov)
-                                    .sub_image(
-                                        xr::SwapchainSubImage::new()
-                                            .swapchain(&swapchain)
-                                            .image_array_index(0)
-                                            .image_rect(rect),
-                                    ),
-                                xr::CompositionLayerProjectionView::new()
-                                    .pose(views[1].pose)
-                                    .fov(views[1].fov)
-                                    .sub_image(
-                                        xr::SwapchainSubImage::new()
-                                            .swapchain(&swapchain)
-                                            .image_array_index(1)
-                                            .image_rect(rect),
-                                    ),
-                            ]),
-                    ],
+        let create_view = |i: usize| {
+            xr::CompositionLayerProjectionView::new()
+                .pose(views[i].pose)
+                .fov(views[i].fov)
+                .sub_image(
+                    xr::SwapchainSubImage::new()
+                        .swapchain(&swapchain)
+                        .image_array_index(i as u32)
+                        .image_rect(rect),
                 )
-            }
-            None => self.stream.lock().unwrap().end(
+        };
+        let views = [create_view(0), create_view(1)];
+        if let Some(pass) = passthrough_layer {
+            // info!("Rendering with pass through");
+            let passthrough_layer = xr::sys::CompositionLayerPassthroughFB {
+                ty: CompositionLayerPassthroughFB::TYPE,
+                next: ptr::null(),
+                flags: CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA,
+                space: xr::sys::Space::NULL,
+                layer_handle: pass.0,
+            };
+            self.stream.lock().unwrap().end(
                 predicted_display_time,
                 environment_blend_mode,
-                &[&xr::CompositionLayerProjection::new().space(stage).views(&[
-                    xr::CompositionLayerProjectionView::new()
-                        .pose(views[0].pose)
-                        .fov(views[0].fov)
-                        .sub_image(
-                            xr::SwapchainSubImage::new()
-                                .swapchain(&swapchain)
-                                .image_array_index(0)
-                                .image_rect(rect),
-                        ),
-                    xr::CompositionLayerProjectionView::new()
-                        .pose(views[1].pose)
-                        .fov(views[1].fov)
-                        .sub_image(
-                            xr::SwapchainSubImage::new()
-                                .swapchain(&swapchain)
-                                .image_array_index(1)
-                                .image_rect(rect),
-                        ),
-                ])],
-            ),
+                &[
+                    unsafe { &*(&passthrough_layer as *const _ as *const CompositionLayerBase<G>) },
+                    &xr::CompositionLayerProjection::new()
+                        .layer_flags(CompositionLayerFlags::BLEND_TEXTURE_SOURCE_ALPHA)
+                        .space(stage)
+                        .views(&views),
+                ],
+            )
+        } else {
+            self.stream.lock().unwrap().end(
+                predicted_display_time,
+                environment_blend_mode,
+                &[&xr::CompositionLayerProjection::new()
+                    .space(stage)
+                    .views(&views)],
+            )
         }
     }
 }
