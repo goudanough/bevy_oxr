@@ -6,19 +6,15 @@ use anyhow::Context;
 use ash::vk::{self, Handle};
 use bevy::math::uvec2;
 use bevy::prelude::*;
-use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderDevice, RenderQueue};
+use bevy::render::renderer::{RenderAdapter, RenderAdapterInfo, RenderQueue};
 use bevy::window::RawHandleWrapper;
 use openxr as xr;
-use wgpu::Instance;
 use xr::EnvironmentBlendMode;
 
 use crate::graphics::extensions::XrExtensions;
 use crate::input::XrInput;
-use crate::resources::{
-    Swapchain, SwapchainInner, XrEnvironmentBlendMode, XrFormat, XrFrameState, XrFrameWaiter,
-    XrInstance, XrResolution, XrSession, XrSessionRunning, XrSwapchain, XrViews,
-};
-use crate::VIEW_TYPE;
+use crate::resources::{Swapchain, SwapchainInner};
+use crate::{XrFrameWaiter, XrGraphicsData, VIEW_TYPE};
 
 use super::{XrAppInfo, XrPreferdBlendMode};
 
@@ -27,24 +23,7 @@ pub fn initialize_xr_graphics(
     reqeusted_extensions: XrExtensions,
     prefered_blend_mode: XrPreferdBlendMode,
     app_info: XrAppInfo,
-) -> anyhow::Result<(
-    RenderDevice,
-    RenderQueue,
-    RenderAdapterInfo,
-    RenderAdapter,
-    Instance,
-    XrInstance,
-    XrSession,
-    XrEnvironmentBlendMode,
-    XrResolution,
-    XrFormat,
-    XrSessionRunning,
-    XrFrameWaiter,
-    XrSwapchain,
-    XrInput,
-    XrViews,
-    XrFrameState,
-)> {
+) -> anyhow::Result<XrGraphicsData> {
     use wgpu_hal::{api::Vulkan as V, Api};
 
     let xr_entry = super::xr_entry()?;
@@ -131,7 +110,7 @@ pub fn initialize_xr_graphics(
     let vk_entry = unsafe { ash::Entry::load() }?;
     let flags = wgpu::InstanceFlags::from_build_config();
     let extensions = <V as Api>::Instance::desired_extensions(&vk_entry, vk_target_version, flags)?;
-    let device_extensions = vec![
+    let device_extensions = [
         ash::extensions::khr::Swapchain::name(),
         ash::extensions::khr::DrawIndirectCount::name(),
         #[cfg(target_os = "android")]
@@ -218,7 +197,7 @@ pub fn initialize_xr_graphics(
         .required_device_extensions(wgpu_features);
 
     let (wgpu_open_device, vk_device_ptr, queue_family_index) = {
-        let extensions_cchar: Vec<_> = device_extensions.iter().map(|s| s.as_ptr()).collect();
+        let extensions_cchar: &[_] = &device_extensions.map(|s| s.as_ptr());
         let mut enabled_phd_features = wgpu_exposed_adapter
             .adapter
             .physical_device_features(&enabled_extensions, wgpu_features);
@@ -237,7 +216,7 @@ pub fn initialize_xr_graphics(
                         ..Default::default()
                     }),
             )
-            .enabled_extension_names(&extensions_cchar)
+            .enabled_extension_names(extensions_cchar)
             .build();
         let vk_device = unsafe {
             let vk_device = xr_instance
@@ -372,7 +351,7 @@ pub fn initialize_xr_graphics(
                     None,
                 )
             };
-            let texture = unsafe {
+            unsafe {
                 wgpu_device.create_texture_from_hal::<V>(
                     wgpu_hal_texture,
                     &wgpu::TextureDescriptor {
@@ -391,40 +370,39 @@ pub fn initialize_xr_graphics(
                         view_formats: &[],
                     },
                 )
-            };
-            texture
+            }
         })
         .collect();
 
-    Ok((
-        wgpu_device.into(),
-        RenderQueue(Arc::new(wgpu_queue)),
-        RenderAdapterInfo(wgpu_adapter.get_info()),
-        RenderAdapter(Arc::new(wgpu_adapter)),
-        wgpu_instance,
-        xr_instance.clone().into(),
-        session.clone().into_any_graphics().into(),
-        blend_mode.into(),
-        resolution.into(),
-        swapchain_format.into(),
-        AtomicBool::new(false).into(),
-        Mutex::new(frame_wait).into(),
-        Swapchain::Vulkan(SwapchainInner {
+    Ok(XrGraphicsData {
+        device: wgpu_device.into(),
+        queue: RenderQueue(Arc::new(wgpu_queue)),
+        adapter_info: RenderAdapterInfo(wgpu_adapter.get_info()),
+        render_adapter: RenderAdapter(Arc::new(wgpu_adapter)),
+        instance: wgpu_instance,
+        xr_instance: xr_instance.clone().into(),
+        session: session.clone().into_any_graphics().into(),
+        blend_mode: blend_mode.into(),
+        resolution: resolution.into(),
+        format: swapchain_format.into(),
+        session_running: AtomicBool::new(false).into(),
+        frame_waiter: XrFrameWaiter(frame_wait),
+        swapchain: Swapchain::Vulkan(SwapchainInner {
             stream: Mutex::new(frame_stream),
             handle: Mutex::new(handle),
             buffers,
             image_index: Mutex::new(0),
         })
         .into(),
-        XrInput::new(xr_instance, session.into_any_graphics())?,
-        Mutex::default().into(),
-        Mutex::new(xr::FrameState {
+        input: XrInput::new(xr_instance, session.into_any_graphics())?,
+        views: Vec::default().into(),
+        frame_state: xr::FrameState {
             predicted_display_time: xr::Time::from_nanos(1),
             predicted_display_period: xr::Duration::from_nanos(1),
             should_render: true,
-        })
+        }
         .into(),
-    ))
+    })
 }
 
 fn wgpu_to_vulkan(format: wgpu::TextureFormat) -> vk::Format {

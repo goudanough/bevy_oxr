@@ -1,5 +1,3 @@
-use std::f32::consts::PI;
-
 use bevy::log::info;
 use bevy::prelude::{
     Color, Component, Entity, Event, EventReader, EventWriter, Gizmos, GlobalTransform, Quat,
@@ -20,38 +18,26 @@ pub struct XRSocketInteractor;
 #[derive(Component)]
 pub struct Touched(pub bool);
 
-#[derive(Component, Clone, Copy, PartialEq, PartialOrd, Debug)]
+#[derive(Component, Clone, Copy, PartialEq, PartialOrd, Debug, Default)]
 pub enum XRInteractableState {
+    #[default]
     Idle,
     Hover,
     Select,
 }
 
-impl Default for XRInteractableState {
-    fn default() -> Self {
-        XRInteractableState::Idle
-    }
-}
-
-#[derive(Component)]
+#[derive(Component, Default)]
 pub enum XRInteractorState {
+    #[default]
     Idle,
     Selecting,
 }
-impl Default for XRInteractorState {
-    fn default() -> Self {
-        XRInteractorState::Idle
-    }
-}
-#[derive(Component)]
+
+#[derive(Component, Default)]
 pub enum XRSelection {
+    #[default]
     Empty,
     Full(Entity),
-}
-impl Default for XRSelection {
-    fn default() -> Self {
-        XRSelection::Empty
-    }
 }
 
 #[derive(Component)]
@@ -67,7 +53,7 @@ pub fn draw_socket_gizmos(
     )>,
 ) {
     for (global, state, _entity, _socket) in interactor_query.iter() {
-        let mut transform = global.compute_transform().clone();
+        let mut transform = global.compute_transform();
         transform.scale = Vec3::splat(0.1);
         let color = match state {
             XRInteractorState::Idle => Color::BLUE,
@@ -109,41 +95,36 @@ pub fn draw_interaction_gizmos(
     for (interactor_global_transform, interactor_state, direct, ray, aim) in interactor_query.iter()
     {
         let transform = interactor_global_transform.compute_transform();
-        match direct {
-            Some(_) => {
-                let mut local = transform.clone();
-                local.scale = Vec3::splat(0.1);
-                let quat = Quat::from_euler(
-                    bevy::prelude::EulerRot::XYZ,
-                    45.0 * (PI / 180.0),
-                    0.0,
-                    45.0 * (PI / 180.0),
-                );
-                local.rotation = quat;
+        if direct.is_some() {
+            let mut local = transform;
+            local.scale = Vec3::splat(0.1);
+            let quat = Quat::from_euler(
+                bevy::prelude::EulerRot::XYZ,
+                45_f32.to_radians(),
+                0.0,
+                45_f32.to_radians(),
+            );
+            local.rotation = quat;
+            let color = match interactor_state {
+                XRInteractorState::Idle => Color::BLUE,
+                XRInteractorState::Selecting => Color::PURPLE,
+            };
+            gizmos.cuboid(local, color);
+        }
+        if ray.is_some() {
+            if let Some(aim) = aim {
                 let color = match interactor_state {
                     XRInteractorState::Idle => Color::BLUE,
                     XRInteractorState::Selecting => Color::PURPLE,
                 };
-                gizmos.cuboid(local, color);
+                gizmos.ray(
+                    root.translation + root.rotation.mul_vec3(aim.0.translation),
+                    root.rotation.mul_vec3(*aim.0.forward()),
+                    color,
+                );
+            } else {
+                todo!()
             }
-            None => (),
-        }
-        match ray {
-            Some(_) => match aim {
-                Some(aim) => {
-                    let color = match interactor_state {
-                        XRInteractorState::Idle => Color::BLUE,
-                        XRInteractorState::Selecting => Color::PURPLE,
-                    };
-                    gizmos.ray(
-                        root.translation + root.rotation.mul_vec3(aim.0.translation),
-                        root.rotation.mul_vec3(*aim.0.forward()),
-                        color,
-                    );
-                }
-                None => todo!(),
-            },
-            None => (),
         }
     }
 }
@@ -236,88 +217,57 @@ pub fn interactions(
         for (interactor_global_transform, interactor_state, interactor_entity, direct, ray, aim) in
             interactor_query.iter()
         {
-            match direct {
-                Some(_) => {
-                    //check for sphere overlaps
-                    let size = 0.1;
-                    if interactor_global_transform
-                        .compute_transform()
-                        .translation
-                        .distance_squared(
-                            xr_interactable_global_transform
-                                .compute_transform()
-                                .translation,
-                        )
-                        < (size * size) * 2.0
-                    {
-                        //check for selections first
-                        match interactor_state {
-                            XRInteractorState::Idle => {
-                                let event = InteractionEvent {
-                                    interactor: interactor_entity,
-                                    interactable: interactable_entity,
-                                    interactable_state: XRInteractableState::Hover,
-                                };
-                                writer.send(event);
-                            }
-                            XRInteractorState::Selecting => {
-                                let event = InteractionEvent {
-                                    interactor: interactor_entity,
-                                    interactable: interactable_entity,
-                                    interactable_state: XRInteractableState::Select,
-                                };
-                                writer.send(event);
-                            }
-                        }
-                    }
+            if direct.is_some() {
+                //check for sphere overlaps
+                let size = 0.1;
+                if interactor_global_transform
+                    .compute_transform()
+                    .translation
+                    .distance_squared(
+                        xr_interactable_global_transform
+                            .compute_transform()
+                            .translation,
+                    )
+                    < (size * size) * 2.0
+                {
+                    //check for selections first
+                    let event = InteractionEvent {
+                        interactor: interactor_entity,
+                        interactable: interactable_entity,
+                        interactable_state: match XRInteractorState::Idle {
+                            XRInteractorState::Idle => XRInteractableState::Hover,
+                            XRInteractorState::Selecting => XRInteractableState::Select,
+                        },
+                    };
+                    writer.send(event);
                 }
-                None => (),
             }
-            match ray {
-                Some(_) => {
-                    //check for ray-sphere intersection
-                    let sphere_transform = xr_interactable_global_transform.compute_transform();
-                    let center = sphere_transform.translation;
-                    let radius: f32 = 0.1;
-                    //I hate this but the aim pose needs the root for now
-                    let root = tracking_root_query.get_single().unwrap();
-                    match aim {
-                        Some(aim) => {
-                            let ray_origin =
-                                root.translation + root.rotation.mul_vec3(aim.0.translation);
-                            let ray_dir = root.rotation.mul_vec3(*aim.0.forward());
 
-                            if ray_sphere_intersection(
-                                center,
-                                radius,
-                                ray_origin,
-                                ray_dir.normalize_or_zero(),
-                            ) {
-                                //check for selections first
-                                match interactor_state {
-                                    XRInteractorState::Idle => {
-                                        let event = InteractionEvent {
-                                            interactor: interactor_entity,
-                                            interactable: interactable_entity,
-                                            interactable_state: XRInteractableState::Hover,
-                                        };
-                                        writer.send(event);
-                                    }
-                                    XRInteractorState::Selecting => {
-                                        let event = InteractionEvent {
-                                            interactor: interactor_entity,
-                                            interactable: interactable_entity,
-                                            interactable_state: XRInteractableState::Select,
-                                        };
-                                        writer.send(event);
-                                    }
-                                }
-                            }
-                        }
-                        None => info!("no aim pose"),
+            if ray.is_some() {
+                //check for ray-sphere intersection
+                let sphere_transform = xr_interactable_global_transform.compute_transform();
+                let center = sphere_transform.translation;
+                let radius: f32 = 0.1;
+                //I hate this but the aim pose needs the root for now
+                let root = tracking_root_query.get_single().unwrap();
+                if let Some(aim) = aim {
+                    let ray_origin = root.translation + root.rotation.mul_vec3(aim.0.translation);
+                    let ray_dir = root.rotation.mul_vec3(*aim.0.forward()).normalize_or_zero();
+
+                    if ray_sphere_intersection(center, radius, ray_origin, ray_dir) {
+                        let event = InteractionEvent {
+                            interactor: interactor_entity,
+                            interactable: interactable_entity,
+                            interactable_state: match interactor_state {
+                                XRInteractorState::Idle => XRInteractableState::Hover,
+                                XRInteractorState::Selecting => XRInteractableState::Select,
+                            },
+                        };
+                        writer.send(event);
                     }
+                } else {
+                    info!("no aim pose")
                 }
-                None => (),
             }
         }
     }
@@ -336,20 +286,19 @@ pub fn update_interactable_states(
     }
     for event in events.read() {
         //lets change the state
-        match interactable_query.get_mut(event.interactable) {
-            Ok((_entity, mut entity_state, mut touched)) => {
-                //since we have an event we were touched this frame, i hate this name
-                *touched = Touched(true);
-                if event.interactable_state > *entity_state {
-                    // info!(
-                    //     "event.state: {:?}, interactable.state: {:?}",
-                    //     event.interactable_state, entity_state
-                    // );
-                    // info!("event has a higher state");
-                }
-                *entity_state = event.interactable_state;
+        if let Ok((_entity, mut entity_state, mut touched)) =
+            interactable_query.get_mut(event.interactable)
+        {
+            //since we have an event we were touched this frame, i hate this name
+            *touched = Touched(true);
+            if event.interactable_state > *entity_state {
+                // info!(
+                //     "event.state: {:?}, interactable.state: {:?}",
+                //     event.interactable_state, entity_state
+                // );
+                // info!("event has a higher state");
             }
-            Err(_) => {}
+            *entity_state = event.interactable_state;
         }
     }
     //lets go through all the untouched interactables and set them to idle
@@ -377,5 +326,5 @@ fn ray_sphere_intersection(center: Vec3, radius: f32, ray_origin: Vec3, ray_dir:
     }
 
     // let distance = if t0 < t1 { t0 } else { t1 };
-    return true;
+    true
 }

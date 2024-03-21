@@ -1,3 +1,6 @@
+#![allow(clippy::type_complexity)]
+#![allow(clippy::too_many_arguments)]
+
 pub mod graphics;
 pub mod input;
 pub mod passthrough;
@@ -6,7 +9,7 @@ pub mod resources;
 pub mod xr_init;
 pub mod xr_input;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::xr_init::RenderRestartPlugin;
 use crate::xr_input::hands::hand_tracking::DisableHandTracking;
@@ -15,8 +18,11 @@ use bevy::app::{AppExit, PluginGroupBuilder};
 use bevy::ecs::system::SystemState;
 use bevy::prelude::*;
 use bevy::render::camera::{ManualTextureView, ManualTextureViewHandle, ManualTextureViews};
+use bevy::render::extract_resource::ExtractResourcePlugin;
 use bevy::render::pipelined_rendering::PipelinedRenderingPlugin;
-use bevy::render::renderer::{render_system, RenderInstance};
+use bevy::render::renderer::{
+    render_system, RenderAdapter, RenderAdapterInfo, RenderDevice, RenderInstance, RenderQueue,
+};
 use bevy::render::settings::RenderCreation;
 use bevy::render::{Render, RenderApp, RenderPlugin, RenderSet};
 use bevy::window::{PresentMode, PrimaryWindow, RawHandleWrapper, WindowMode};
@@ -26,8 +32,9 @@ use input::XrInput;
 pub use openxr as xr;
 use passthrough::{start_passthrough, supports_passthrough};
 use resources::*;
+use wgpu::Instance;
 use xr::FormFactor;
-use xr_init::{xr_only, XrEnableStatus, XrRenderData};
+use xr_init::{xr_only, XrEnableStatus};
 use xr_input::controllers::XrControllerType;
 use xr_input::hands::emulated::HandEmulationPlugin;
 use xr_input::hands::hand_tracking::{HandTrackingData, HandTrackingPlugin};
@@ -46,32 +53,27 @@ pub struct OpenXrPlugin {
     app_info: XrAppInfo,
 }
 
-#[derive(Resource)]
-pub struct FutureXrResources(
-    pub  Arc<
-        Mutex<
-            Option<(
-                XrInstance,
-                XrSession,
-                XrEnvironmentBlendMode,
-                XrResolution,
-                XrFormat,
-                XrSessionRunning,
-                XrFrameWaiter,
-                XrSwapchain,
-                XrInput,
-                XrViews,
-                XrFrameState,
-            )>,
-        >,
-    >,
-);
-
 // #[derive(Resource)]
 pub struct XrEvents(pub Vec<Box<xr::EventDataBuffer>>);
-// fn mr_test(mut commands: Commands, passthrough_layer: Option<Res<XrPassthroughLayer>>) {
-//     commands.insert_resource(ClearColor(Color::rgba(0.0, 0.0, 0.0, 0.0)));
-// }
+
+pub struct XrGraphicsData {
+    device: RenderDevice,
+    queue: RenderQueue,
+    adapter_info: RenderAdapterInfo,
+    render_adapter: RenderAdapter,
+    instance: Instance,
+    xr_instance: XrInstance,
+    session: XrSession,
+    blend_mode: XrEnvironmentBlendMode,
+    resolution: XrResolution,
+    format: XrFormat,
+    session_running: XrSessionRunning,
+    frame_waiter: XrFrameWaiter,
+    swapchain: XrSwapchain,
+    input: XrInput,
+    views: XrViews,
+    frame_state: XrFrameState,
+}
 
 impl Plugin for OpenXrPlugin {
     fn build(&self, app: &mut App) {
@@ -86,60 +88,36 @@ impl Plugin for OpenXrPlugin {
             self.prefered_blend_mode,
             self.app_info.clone(),
         ) {
-            Ok((
-                device,
-                queue,
-                adapter_info,
-                render_adapter,
-                instance,
-                xr_instance,
-                session,
-                blend_mode,
-                resolution,
-                format,
-                session_running,
-                frame_waiter,
-                swapchain,
-                input,
-                views,
-                frame_state,
-            )) => {
+            Ok(render_data) => {
                 // std::thread::sleep(Duration::from_secs(5));
-                debug!("Configured wgpu adapter Limits: {:#?}", device.limits());
-                debug!("Configured wgpu adapter Features: {:#?}", device.features());
-                app.insert_resource(xr_instance.clone());
-                app.insert_resource(session.clone());
-                app.insert_resource(blend_mode.clone());
-                app.insert_resource(resolution.clone());
-                app.insert_resource(format.clone());
-                app.insert_resource(session_running.clone());
-                app.insert_resource(frame_waiter.clone());
-                app.insert_resource(swapchain.clone());
-                app.insert_resource(input.clone());
-                app.insert_resource(views.clone());
-                app.insert_resource(frame_state.clone());
-                let xr_data = XrRenderData {
-                    xr_instance,
-                    xr_session: session,
-                    xr_blend_mode: blend_mode,
-                    xr_resolution: resolution,
-                    xr_format: format,
-                    xr_session_running: session_running,
-                    xr_frame_waiter: frame_waiter,
-                    xr_swapchain: swapchain,
-                    xr_input: input,
-                    xr_views: views,
-                    xr_frame_state: frame_state,
-                };
-                app.insert_resource(xr_data);
+                debug!(
+                    "Configured wgpu adapter Limits: {:#?}",
+                    render_data.device.limits()
+                );
+                debug!(
+                    "Configured wgpu adapter Features: {:#?}",
+                    render_data.device.features()
+                );
+                app.insert_resource(render_data.xr_instance);
+                app.insert_resource(render_data.session);
+                app.insert_resource(render_data.blend_mode);
+                app.insert_resource(render_data.resolution);
+                app.insert_resource(render_data.format);
+                app.insert_resource(render_data.session_running);
+                app.insert_resource(render_data.frame_waiter);
+                app.insert_resource(render_data.swapchain);
+                app.insert_resource(render_data.input);
+                app.insert_resource(render_data.views);
+                app.insert_resource(render_data.frame_state);
                 app.insert_resource(ActionSets(vec![]));
+                app.insert_non_send_resource(XrEvents(Vec::new()));
                 let render_plugin = RenderPlugin {
                     render_creation: RenderCreation::Manual(
-                        device,
-                        queue,
-                        adapter_info,
-                        render_adapter,
-                        RenderInstance(Arc::new(instance)),
+                        render_data.device,
+                        render_data.queue,
+                        render_data.adapter_info,
+                        render_data.render_adapter,
+                        RenderInstance(Arc::new(render_data.instance)),
                     ),
                     ..default()
                 };
@@ -149,7 +127,7 @@ impl Plugin for OpenXrPlugin {
                 app.insert_resource(XrEnableStatus::Enabled);
             }
             Err(err) => {
-                warn!("OpenXR Failed to initialize: {}", err);
+                warn!("OpenXR Failed to initialize: {err}");
                 app.add_plugins(RenderPlugin::default());
                 app.insert_resource(XrEnableStatus::Disabled);
             }
@@ -170,74 +148,59 @@ impl Plugin for OpenXrPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        // TODO: Split this up into the indevidual resources
-        if let Some(data) = app.world.get_resource::<XrRenderData>().cloned() {
-            let hands = data.xr_instance.exts().ext_hand_tracking.is_some()
-                && data
-                    .xr_instance
-                    .supports_hand_tracking(
-                        data.xr_instance
-                            .system(FormFactor::HEAD_MOUNTED_DISPLAY)
-                            .unwrap(),
-                    )
-                    .is_ok_and(|v| v);
-            if hands {
-                app.insert_resource(HandTrackingData::new(&data.xr_session).unwrap());
-            } else {
-                app.insert_resource(DisableHandTracking::Both);
-            }
-            let passthrough = data.xr_instance.exts().fb_passthrough.is_some()
-                && supports_passthrough(
-                    &data.xr_instance,
-                    data.xr_instance
-                        .system(FormFactor::HEAD_MOUNTED_DISPLAY)
-                        .unwrap(),
-                )
+        let instance = app.world.resource::<XrInstance>().clone();
+        let session = app.world.resource::<XrSession>().clone();
+        let swapchain = app.world.resource::<XrSwapchain>().clone();
+        let resolution = app.world.resource::<XrResolution>().clone();
+        let format = app.world.resource::<XrFormat>().clone();
+
+        let hands = instance.exts().ext_hand_tracking.is_some()
+            && instance
+                .supports_hand_tracking(instance.system(FormFactor::HEAD_MOUNTED_DISPLAY).unwrap())
                 .is_ok_and(|v| v);
+        if hands {
+            app.insert_resource(HandTrackingData::new(&session).unwrap());
+        } else {
+            app.insert_resource(DisableHandTracking::Both);
+        }
+        let passthrough = instance.exts().fb_passthrough.is_some()
+            && supports_passthrough(
+                &instance,
+                instance.system(FormFactor::HEAD_MOUNTED_DISPLAY).unwrap(),
+            );
 
-            let (left, right) = data.xr_swapchain.get_render_views();
-            let left = ManualTextureView {
-                texture_view: left.into(),
-                size: *data.xr_resolution,
-                format: *data.xr_format,
-            };
-            let right = ManualTextureView {
-                texture_view: right.into(),
-                size: *data.xr_resolution,
-                format: *data.xr_format,
-            };
-            app.insert_non_send_resource(XrEvents(Vec::new()));
-            app.add_systems(PreUpdate, xr_begin_frame.run_if(xr_only()));
-            let mut manual_texture_views = app.world.resource_mut::<ManualTextureViews>();
-            manual_texture_views.insert(LEFT_XR_TEXTURE_HANDLE, left);
-            manual_texture_views.insert(RIGHT_XR_TEXTURE_HANDLE, right);
-            drop(manual_texture_views);
-            let render_app = app.sub_app_mut(RenderApp);
+        let (left, right) = swapchain.get_render_views();
+        let left = ManualTextureView {
+            texture_view: left.into(),
+            size: *resolution,
+            format: *format,
+        };
+        let right = ManualTextureView {
+            texture_view: right.into(),
+            size: *resolution,
+            format: *format,
+        };
+        app.add_systems(PreUpdate, xr_begin_frame.run_if(xr_only()));
+        let mut manual_texture_views = app.world.resource_mut::<ManualTextureViews>();
+        manual_texture_views.insert(LEFT_XR_TEXTURE_HANDLE, left);
+        manual_texture_views.insert(RIGHT_XR_TEXTURE_HANDLE, right);
+        // drop(manual_texture_views);
+        let render_app = app.sub_app_mut(RenderApp);
 
-            if passthrough {
-                info!("Passthrough!");
-                let (pl, p) = start_passthrough(&data);
-                render_app.insert_resource(pl);
-                info!("Inserted XrPassthroughLayer resource!");
-                // app.insert_resource(p);
-                // if !app.world.contains_resource::<ClearColor>() {
-                // info!("ClearColor!");
-                // }
-            }
+        if passthrough {
+            info!("Passthrough!");
+            let (pl, _p) = start_passthrough(&instance, &session);
+            render_app.insert_resource(pl);
+            info!("Inserted XrPassthroughLayer resource!");
+            // app.insert_resource(p);
+            // if !app.world.contains_resource::<ClearColor>() {
+            // info!("ClearColor!");
+            // }
+        }
 
-            render_app.insert_resource(data.xr_instance.clone());
-            render_app.insert_resource(data.xr_session.clone());
-            render_app.insert_resource(data.xr_blend_mode.clone());
-            render_app.insert_resource(data.xr_resolution.clone());
-            render_app.insert_resource(data.xr_format.clone());
-            render_app.insert_resource(data.xr_session_running.clone());
-            render_app.insert_resource(data.xr_frame_waiter.clone());
-            render_app.insert_resource(data.xr_swapchain.clone());
-            render_app.insert_resource(data.xr_input.clone());
-            render_app.insert_resource(data.xr_views.clone());
-            render_app.insert_resource(data.xr_frame_state.clone());
-            render_app.insert_resource(XrEnableStatus::Enabled);
-            render_app.add_systems(
+        render_app
+            .insert_resource(XrEnableStatus::Enabled)
+            .add_systems(
                 Render,
                 (
                     post_frame
@@ -247,7 +210,19 @@ impl Plugin for OpenXrPlugin {
                     end_frame.run_if(xr_only()).after(render_system),
                 ),
             );
-        }
+
+        app.add_plugins((
+            ExtractResourcePlugin::<XrInstance>::default(),
+            ExtractResourcePlugin::<XrSession>::default(),
+            ExtractResourcePlugin::<XrEnvironmentBlendMode>::default(),
+            ExtractResourcePlugin::<XrResolution>::default(),
+            ExtractResourcePlugin::<XrFormat>::default(),
+            ExtractResourcePlugin::<XrSessionRunning>::default(),
+            ExtractResourcePlugin::<XrSwapchain>::default(),
+            ExtractResourcePlugin::<XrInput>::default(),
+            ExtractResourcePlugin::<XrViews>::default(),
+            ExtractResourcePlugin::<XrFrameState>::default(),
+        ));
     }
 }
 
@@ -300,10 +275,10 @@ pub fn xr_begin_frame(
     instance: Res<XrInstance>,
     session: Res<XrSession>,
     session_running: Res<XrSessionRunning>,
-    frame_state: Res<XrFrameState>,
-    frame_waiter: Res<XrFrameWaiter>,
+    mut frame_state: ResMut<XrFrameState>,
+    mut frame_waiter: ResMut<XrFrameWaiter>,
     swapchain: Res<XrSwapchain>,
-    views: Res<XrViews>,
+    mut views: ResMut<XrViews>,
     input: Res<XrInput>,
     mut events: NonSendMut<XrEvents>,
     mut app_exit: EventWriter<AppExit>,
@@ -312,7 +287,7 @@ pub fn xr_begin_frame(
         let _span = info_span!("xr_poll_events");
         let mut new_events = Vec::new();
         loop {
-            let mut evt_buf = Box::new(xr::EventDataBuffer::default());
+            let mut evt_buf = Box::<xr::EventDataBuffer>::default();
             if let Some(event) = instance.poll_event(evt_buf.as_mut()).unwrap() {
                 use xr::Event::*;
                 match event {
@@ -353,8 +328,8 @@ pub fn xr_begin_frame(
     }
     {
         let _span = info_span!("xr_wait_frame").entered();
-        *frame_state.lock().unwrap() = match frame_waiter.lock().unwrap().wait() {
-            Ok(a) => a,
+        *frame_state = match frame_waiter.wait() {
+            Ok(fs) => fs.into(),
             Err(e) => {
                 warn!("error: {}", e);
                 return;
@@ -367,14 +342,11 @@ pub fn xr_begin_frame(
     }
     {
         let _span = info_span!("xr_locate_views").entered();
-        *views.lock().unwrap() = session
-            .locate_views(
-                VIEW_TYPE,
-                frame_state.lock().unwrap().predicted_display_time,
-                &input.stage,
-            )
+        *views = session
+            .locate_views(VIEW_TYPE, frame_state.predicted_display_time, &input.stage)
             .unwrap()
-            .1;
+            .1
+            .into();
     }
 }
 
@@ -433,8 +405,8 @@ pub fn end_frame(
     {
         let _span = info_span!("xr_end_frame").entered();
         let result = swapchain.end(
-            xr_frame_state.lock().unwrap().predicted_display_time,
-            &views.lock().unwrap(),
+            xr_frame_state.predicted_display_time,
+            &views,
             &input.stage,
             **resolution,
             **environment_blend_mode,
@@ -448,15 +420,15 @@ pub fn end_frame(
 }
 
 pub fn locate_views(
-    views: Res<XrViews>,
+    mut views: ResMut<XrViews>,
     input: Res<XrInput>,
     session: Res<XrSession>,
     xr_frame_state: Res<XrFrameState>,
 ) {
     let _span = info_span!("xr_locate_views").entered();
-    *views.lock().unwrap() = match session.locate_views(
+    *views = match session.locate_views(
         VIEW_TYPE,
-        xr_frame_state.lock().unwrap().predicted_display_time,
+        xr_frame_state.predicted_display_time,
         &input.stage,
     ) {
         Ok(this) => this,
@@ -465,5 +437,6 @@ pub fn locate_views(
             return;
         }
     }
-    .1;
+    .1
+    .into();
 }

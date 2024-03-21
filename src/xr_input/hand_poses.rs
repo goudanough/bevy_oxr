@@ -1,4 +1,4 @@
-use bevy::prelude::{Quat, Transform, Vec3};
+use bevy::prelude::{Transform, Vec3};
 use openxr::{Posef, Quaternionf, Vector3f};
 
 use super::Hand;
@@ -136,47 +136,25 @@ pub fn get_simulated_open_hand_transforms(hand: Hand) -> [Transform; 26] {
             z: 0.01,
         },
     ];
-    let result = bones_to_transforms(test_hand_bones, hand);
-    return result;
+    bones_to_transforms(test_hand_bones, hand)
 }
 
 fn bones_to_transforms(hand_bones: [Vec3; 26], hand: Hand) -> [Transform; 26] {
-    match hand {
-        Hand::Left => {
-            let mut result_array: [Transform; 26] = [Transform::default(); 26];
-            for (place, data) in result_array.iter_mut().zip(hand_bones.iter()) {
-                *place = Transform {
-                    translation: Vec3 {
-                        x: -data.x,
-                        y: -data.y,
-                        z: -data.z,
-                    },
-                    rotation: Quat::IDENTITY,
-                    scale: Vec3::splat(1.0),
-                }
-            }
-            return result_array;
-        }
-        Hand::Right => {
-            let mut result_array: [Transform; 26] = [Transform::default(); 26];
-            for (place, data) in result_array.iter_mut().zip(hand_bones.iter()) {
-                *place = Transform {
-                    translation: Vec3 {
-                        x: data.x,
-                        y: -data.y,
-                        z: -data.z,
-                    },
-                    rotation: Quat::IDENTITY,
-                    scale: Vec3::splat(1.0),
-                }
-            }
-            return result_array;
-        }
-    }
+    hand_bones.map(|data| Transform {
+        translation: Vec3 {
+            x: match hand {
+                Hand::Left => -data.x,
+                Hand::Right => data.x,
+            },
+            y: -data.y,
+            z: -data.z,
+        },
+        ..Default::default()
+    })
 }
 
 pub fn get_test_hand_pose_array() -> [Posef; 26] {
-    let test_hand_pose: [Posef; 26] = [
+    [
         Posef {
             position: Vector3f {
                 x: 0.0,
@@ -515,6 +493,5 @@ pub fn get_test_hand_pose_array() -> [Posef; 26] {
                 w: -0.496,
             },
         },
-    ];
-    return test_hand_pose;
+    ]
 }

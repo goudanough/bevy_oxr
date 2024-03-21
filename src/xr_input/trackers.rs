@@ -62,8 +62,6 @@ pub fn update_open_xr_controllers(
     session: Res<XrSession>,
     action_sets: Res<XrActionSets>,
 ) {
-    //lock dat frame?
-    let frame_state = *frame_state.lock().unwrap();
     //get controller
     let controller = oculus_controller.get_ref(&session, &frame_state, &xr_input, &action_sets);
     //get left controller
@@ -73,64 +71,58 @@ pub fn update_open_xr_controllers(
     //TODO figure out how to not get the entity multiple times
     let left_aim_pose = left_controller_query.get_single_mut();
     //set aim pose
-    match left_aim_pose {
-        Ok(left_entity) => match left_entity.1 {
-            Some(mut pose) => {
-                *pose = AimPose(Transform {
-                    translation: left_aim_space.0.pose.position.to_vec3(),
-                    rotation: left_aim_space.0.pose.orientation.to_quat(),
-                    scale: Vec3::splat(1.0),
-                });
-            }
-            None => (),
-        },
-        Err(_) => debug!("no left controlelr entity found"),
+
+    if let Ok((_, pose)) = left_aim_pose {
+        if let Some(mut pose) = pose {
+            *pose = AimPose(Transform {
+                translation: left_aim_space.0.pose.position.to_vec3(),
+                rotation: left_aim_space.0.pose.orientation.to_quat(),
+                scale: Vec3::ONE,
+            });
+        }
+    } else {
+        debug!("no left controller entity found")
     }
+
     //set translation
     let left_translation = left_controller_query.get_single_mut();
-    match left_translation {
-        Ok(mut left_entity) => left_entity.0.translation = left_postion,
-        Err(_) => (),
+    if let Ok((mut transform, _)) = left_translation {
+        transform.translation = left_postion
     }
+
     //set rotation
     let left_rotataion = left_controller_query.get_single_mut();
-    match left_rotataion {
-        Ok(mut left_entity) => {
-            left_entity.0.rotation = left_grip_space.0.pose.orientation.to_quat()
-        }
-        Err(_) => (),
+    if let Ok((mut transform, _)) = left_rotataion {
+        transform.rotation = left_grip_space.0.pose.orientation.to_quat()
     }
+
     //get right controller
     let right_grip_space = controller.grip_space(Hand::Right);
     let right_aim_space = controller.aim_space(Hand::Right);
     let right_postion = right_grip_space.0.pose.position.to_vec3();
 
     let right_aim_pose = right_controller_query.get_single_mut();
-    match right_aim_pose {
-        Ok(right_entity) => match right_entity.1 {
-            Some(mut pose) => {
-                *pose = AimPose(Transform {
-                    translation: right_aim_space.0.pose.position.to_vec3(),
-                    rotation: right_aim_space.0.pose.orientation.to_quat(),
-                    scale: Vec3::splat(1.0),
-                });
-            }
-            None => (),
-        },
-        Err(_) => debug!("no right controlelr entity found"),
+    if let Ok((_, pose)) = right_aim_pose {
+        if let Some(mut pose) = pose {
+            *pose = AimPose(Transform {
+                translation: right_aim_space.0.pose.position.to_vec3(),
+                rotation: right_aim_space.0.pose.orientation.to_quat(),
+                scale: Vec3::ONE,
+            });
+        }
+    } else {
+        debug!("no right controller entity found")
     }
+
     //set translation
     let right_translation = right_controller_query.get_single_mut();
-    match right_translation {
-        Ok(mut right_entity) => right_entity.0.translation = right_postion,
-        Err(_) => (),
+    if let Ok((mut transform, _)) = right_translation {
+        transform.translation = right_postion
     }
+
     //set rotation
     let right_rotataion = right_controller_query.get_single_mut();
-    match right_rotataion {
-        Ok(mut right_entity) => {
-            right_entity.0.rotation = right_grip_space.0.pose.orientation.to_quat()
-        }
-        Err(_) => (),
+    if let Ok((mut transform, _)) = right_rotataion {
+        transform.rotation = right_grip_space.0.pose.orientation.to_quat()
     }
 }

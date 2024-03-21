@@ -7,7 +7,7 @@ use bevy::{
     ecs::schedule::{ExecutorKind, ScheduleLabel},
     prelude::*,
     render::{
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        extract_resource::ExtractResourcePlugin,
         renderer::{self, RenderAdapter, RenderAdapterInfo, RenderDevice, RenderQueue},
         settings::WgpuSettings,
     },
@@ -18,9 +18,10 @@ use wgpu::Instance;
 use crate::{
     input::XrInput,
     resources::{
-        XrEnvironmentBlendMode, XrFormat, XrFrameState, XrFrameWaiter, XrInstance, XrResolution,
-        XrSession, XrSessionRunning, XrSwapchain, XrViews,
+        XrFormat, XrFrameState, XrInstance, XrResolution, XrSession, XrSessionRunning, XrSwapchain,
+        XrViews,
     },
+    XrEnvironmentBlendMode,
 };
 
 #[derive(Resource, Clone)]
@@ -30,21 +31,6 @@ pub struct RenderCreationData {
     pub adapter_info: RenderAdapterInfo,
     pub render_adapter: RenderAdapter,
     pub instance: Arc<Instance>,
-}
-
-#[derive(Resource, Clone, ExtractResource)]
-pub struct XrRenderData {
-    pub xr_instance: XrInstance,
-    pub xr_session: XrSession,
-    pub xr_blend_mode: XrEnvironmentBlendMode,
-    pub xr_resolution: XrResolution,
-    pub xr_format: XrFormat,
-    pub xr_session_running: XrSessionRunning,
-    pub xr_frame_waiter: XrFrameWaiter,
-    pub xr_swapchain: XrSwapchain,
-    pub xr_input: XrInput,
-    pub xr_views: XrViews,
-    pub xr_frame_state: XrFrameState,
 }
 
 #[derive(Event, Clone, Copy, Debug)]
@@ -100,8 +86,7 @@ pub fn xr_only() -> impl FnMut(Option<Res<'_, XrEnableStatus>>) -> bool {
 impl Plugin for RenderRestartPlugin {
     fn build(&self, app: &mut App) {
         add_schedules(app);
-        app.add_plugins(ExtractResourcePlugin::<XrRenderData>::default())
-            .insert_resource(ForceMain)
+        app.insert_resource(ForceMain)
             .add_event::<XrEnableRequest>()
             .add_event::<XrEnableStatus>()
             .add_systems(PostStartup, setup_xr.run_if(xr_only()))
@@ -280,32 +265,29 @@ fn decide_next_xr_state(
     xr_status: Option<Res<XrEnableStatus>>,
 ) {
     info!("hm");
-    let request = match events.read().next() {
-        Some(v) => v,
-        None => return,
+    let Some(request) = events.read().next() else {
+        return;
     };
     info!("ok");
     match (request, xr_status.as_deref()) {
         (XrEnableRequest::TryEnable, Some(XrEnableStatus::Enabled)) => {
             info!("Xr Already Enabled! ignoring request");
-            return;
         }
         (XrEnableRequest::TryDisable, Some(XrEnableStatus::Disabled)) => {
             info!("Xr Already Disabled! ignoring request");
-            return;
         }
         (_, Some(XrEnableStatus::Waiting)) => {
             info!("Already Handling Request! ignoring request");
-            return;
         }
-        _ => {}
+        (XrEnableRequest::TryEnable, _) => {
+            info!("{:#?}", XrNextEnabledState::Enabled);
+            commands.insert_resource(XrNextEnabledState::Enabled);
+        }
+        (XrEnableRequest::TryDisable, _) => {
+            info!("{:#?}", XrNextEnabledState::Disabled);
+            commands.insert_resource(XrNextEnabledState::Disabled);
+        }
     }
-    let r = match request {
-        XrEnableRequest::TryEnable => XrNextEnabledState::Enabled,
-        XrEnableRequest::TryDisable => XrNextEnabledState::Disabled,
-    };
-    info!("{:#?}", r);
-    commands.insert_resource(r);
 }
 
 pub fn init_non_xr_graphics(primary_window: Option<RawHandleWrapper>) -> RenderCreationData {
@@ -319,9 +301,9 @@ pub fn init_non_xr_graphics(primary_window: Option<RawHandleWrapper>) -> RenderC
             dx12_shader_compiler: settings.dx12_shader_compiler.clone(),
             gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
-        let surface = primary_window.map(|wrapper| unsafe {
+        let surface = primary_window.map(|wrapper| {
             // SAFETY: Plugins should be set up on the main thread.
-            let handle = wrapper.get_handle();
+            let handle = unsafe { wrapper.get_handle() };
             instance
                 .create_surface(handle)
                 .expect("Failed to create wgpu surface")

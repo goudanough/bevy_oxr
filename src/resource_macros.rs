@@ -1,7 +1,9 @@
 #[macro_export]
 macro_rules! xr_resource_wrapper {
     ($wrapper_type:ident, $xr_type:ty) => {
-        #[derive(Clone, bevy::prelude::Resource)]
+        #[derive(
+            Clone, bevy::prelude::Resource, bevy::render::extract_resource::ExtractResource,
+        )]
         pub struct $wrapper_type(pub $xr_type);
 
         impl $wrapper_type {
@@ -29,7 +31,9 @@ macro_rules! xr_resource_wrapper {
 #[macro_export]
 macro_rules! xr_arc_resource_wrapper {
     ($wrapper_type:ident, $xr_type:ty) => {
-        #[derive(Clone, bevy::prelude::Resource)]
+        #[derive(
+            Clone, bevy::prelude::Resource, bevy::render::extract_resource::ExtractResource,
+        )]
         pub struct $wrapper_type(std::sync::Arc<$xr_type>);
 
         impl $wrapper_type {

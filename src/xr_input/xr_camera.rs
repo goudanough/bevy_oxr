@@ -261,8 +261,7 @@ pub fn xr_camera_head_sync(
                 XrCameraType::Xr(eye) => *eye as usize,
                 XrCameraType::Flatscreen => return None,
             };
-            let v = views.lock().unwrap();
-            let view = v.get(view_idx)?;
+            let view = views.get(view_idx)?;
             xr_projection.fov = view.fov;
             transform.rotation = view.pose.orientation.to_quat();
             transform.translation = view.pose.position.to_vec3();

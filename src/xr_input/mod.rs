@@ -9,17 +9,17 @@ pub mod prototype_locomotion;
 pub mod trackers;
 pub mod xr_camera;
 
-use crate::resources::{XrInstance, XrSession};
+use crate::resources::XrSession;
 use crate::xr_begin_frame;
-use crate::xr_init::{xr_only, XrPostSetup, XrSetup, XrPreSetup};
+use crate::xr_init::{xr_only, XrPostSetup, XrPreSetup, XrSetup};
 use crate::xr_input::controllers::XrControllerType;
 use crate::xr_input::oculus_touch::setup_oculus_controller;
 use crate::xr_input::xr_camera::{xr_camera_head_sync, Eye, XRProjection, XrCameraBundle};
-use bevy::app::{App, PostUpdate, Startup};
+use bevy::app::{App, PostUpdate};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::query::With;
 use bevy::ecs::system::Query;
-use bevy::log::{info, warn};
+use bevy::log::warn;
 use bevy::math::Vec2;
 use bevy::prelude::{BuildChildren, Component, Deref, DerefMut, IntoSystemConfigs, Resource};
 use bevy::prelude::{Commands, Plugin, PreUpdate, Quat, Res, SpatialBundle, Update, Vec3};
@@ -29,8 +29,8 @@ use bevy::transform::TransformSystem;
 use bevy::utils::HashMap;
 use openxr::Binding;
 
-use self::actions::{setup_oxr_actions, OpenXrActionsPlugin};
-use self::oculus_touch::{post_action_setup_oculus_controller, ActionSets, init_subaction_path};
+use self::actions::OpenXrActionsPlugin;
+use self::oculus_touch::{init_subaction_path, post_action_setup_oculus_controller, ActionSets};
 use self::trackers::{
     adopt_open_xr_trackers, update_open_xr_controllers, OpenXRLeftEye, OpenXRRightEye,
     OpenXRTrackingRoot,
@@ -85,13 +85,13 @@ impl Plugin for OpenXrInput {
 #[derive(Deref, DerefMut, Resource)]
 pub struct InteractionProfileBindings(pub HashMap<&'static str, Vec<Binding<'static>>>);
 
-fn setup_binding_recommendations(
-    mut commands: Commands,
-    instance: Res<XrInstance>,
-    bindings: Res<InteractionProfileBindings>,
-) {
-    commands.remove_resource::<InteractionProfileBindings>();
-}
+// fn setup_binding_recommendations(
+//     mut commands: Commands,
+//     instance: Res<XrInstance>,
+//     bindings: Res<InteractionProfileBindings>,
+// ) {
+//     commands.remove_resource::<InteractionProfileBindings>();
+// }
 
 fn setup_xr_cameras(
     mut commands: Commands,
@@ -121,11 +121,8 @@ pub fn action_set_system(action_sets: Res<ActionSets>, session: Res<XrSession>) 
         active_action_sets.push(openxr::ActiveActionSet::new(i));
     }
     //info!("action sets: {:#?}", action_sets.0.len());
-    match session.sync_actions(&active_action_sets) {
-        Err(err) => {
-            warn!("{}", err);
-        }
-        _ => {}
+    if let Err(err) = session.sync_actions(&active_action_sets) {
+        warn!("{}", err);
     }
 }
 
